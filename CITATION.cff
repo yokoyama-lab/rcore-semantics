@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite the RC 2026 paper it mechanizes
+  (see preferred-citation below). A companion IEICE letter reporting the
+  machine-checked verification itself is in preparation; this file will
+  be updated with its bibliographic details once published.
+title: >-
+  rcore-semantics: A Rocq mechanization of the meta-level reversible
+  small-step semantics of the reversible core language R-CORE
+type: software
+authors:
+  - given-names: Karin
+    family-names: Ebisu
+    affiliation: Nanzan University
+  - given-names: Toya
+    family-names: Makino
+    affiliation: Nanzan University
+  - given-names: Tetsuo
+    family-names: Yokoyama
+    affiliation: Nanzan University
+repository-code: "https://github.com/yokoyama-lab/rcore-semantics"
+license: MIT
+preferred-citation:
+  type: conference-paper
+  title: >-
+    Small-Step Semantics with Meta-level Reversibility for a Reversible
+    Core Language
+  authors:
+    - given-names: Toya
+      family-names: Makino
+      affiliation: Nanzan University
+    - given-names: Tetsuo
+      family-names: Yokoyama
+      affiliation: Nanzan University
+  collection-title: Reversible Computation (RC 2026)
+  publisher:
+    name: Springer
+  volume: 16626
+  start: 201
+  end: 218
+  year: 2026
+  doi: 10.1007/978-3-032-30839-9_12
