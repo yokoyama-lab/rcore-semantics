@@ -4,3 +4,9 @@
 *.glob
 .*.aux
 .lia.cache
+# extraction output (regenerate with `make extract`)
+rcore_interp.ml
+rcore_interp.mli
+*.cmi
+*.cmo
+test_interp

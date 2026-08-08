@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - 'rocq/rocq-prover:9.1.1'
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: coq-community/docker-coq-action@v1
+        with:
+          custom_image: ${{ matrix.image }}
+          before_script: |
+            startGroup "Workaround permission issue"
+              sudo chown -R 1000:1000 .
+            endGroup
+          script: |
+            startGroup "Build (rocq c) -- this IS the proof"
+              make
+            endGroup
+            startGroup "Kernel re-check (rocq check)"
+              make check
+            endGroup
+            startGroup "Axiom audit -- enforces the axiom-free claim"
+              make audit
+            endGroup
+            startGroup "Paper correspondence -- every rule is accounted for"
+              make correspondence
+            endGroup
+            startGroup "Extraction -- build and RUN the extracted interpreter"
+              make extract-test
+            endGroup
+      - name: Revert permissions
+        if: ${{ always() }}
+        run: sudo chown -R 1001:116 .

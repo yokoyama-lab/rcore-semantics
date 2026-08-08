@@ -1,0 +1,53 @@
+# Rule-by-rule correspondence between the published paper and this
+# development.
+#
+# Why this file exists.  Four of this development's rules differ from the
+# rules printed in the paper, and three of those differences went unnoticed
+# until long after publication -- including one on which the paper's
+# Theorem 1 fails as printed.  Nobody had ever computed the diff, because
+# nothing required it.  This table does: tools/check-correspondence.sh
+# fails the build if a rule of the mechanized semantics has no row here,
+# so a rule cannot be added, weakened or strengthened without someone
+# writing down what it does to the correspondence.
+#
+# Paper: Toya Makino and Tetsuo Yokoyama, "Small-Step Semantics with
+# Meta-Level Reversibility for a Reversible Core Language", Reversible
+# Computation (RC 2026), LNCS 16626, pp. 201-218, Springer.
+# doi:10.1007/978-3-032-30839-9_12.  Figure and equation numbers below are
+# those of the published version.
+#
+# relation:
+#   identical      same premises and conclusion, up to notation
+#   extended       ours fires strictly more often than the printed rule
+#   repaired       the printed rule is defective; ours differs deliberately
+#   reformulated   same content, different presentation
+#
+# Columns: paper_rule <TAB> paper_where <TAB> artifact <TAB> relation <TAB> note
+
+# --- denotational semantics (ds) -----------------------------------------
+Asn_ds	Fig. 2c	D_Asn	reformulated	Side condition d = nil \/ (d = E[[E]]s /\ d <> nil) is exactly the domain of odot. But the paper evaluates E in s (X removed by the uplus notation) and we evaluate it in the full store; the two agree on well-formed assignments.
+Seq_ds	Fig. 2c	D_Seq	identical	Composition of the two denotations.
+Loop_ds	Fig. 2c	D_Loop	extended	Entry assertion: the paper tests E[[X]]s = t, we test s x <> Vnil. Agrees on t and f, and additionally covers values that are neither.
+Loop_ds (fix, exit)	Fig. 2c	L_Base	extended	Exit test s(Y) = t versus s y <> Vnil. As above.
+Loop_ds (fix, iterate)	Fig. 2c	L_Rec	identical	s(Y) = f and s1(X) = f; f abbreviates nil, so the guards coincide.
+
+# --- token-based small-step semantics (ss) -------------------------------
+AsnSet_ss + AsnClear_ss	Fig. 9b	S_Asn	repaired	THE DEFECT. The printed rules carry e <> nil and d <> nil, so neither fires when the target and the value of the right-hand side are both nil, although ds is defined there and AsnClear_fss has no such premise. Merging them into one rule whose only premises are the eval_expr and odot equations closes the gap. See rc2026_theorem1_fails_as_printed_full.
+LoopEnter_ss	Fig. 9b	S_LoopEnter	extended	s(X) = t versus s x <> Vnil. See rc2026_loop_guards_are_stricter.
+LoopExit_ss	Fig. 9b	S_LoopExit	extended	s(Y) = t versus s y <> Vnil.
+LoopIter1_ss	Fig. 9b	S_LoopIter1	identical	s(Y) = f and s y = Vnil coincide.
+LoopIter2_ss	Fig. 9b	S_LoopIter2	identical	s(X) = f and s x = Vnil coincide.
+congruence (1st eqn)	Eq. (7)	S_Seq_Enter	reformulated	The paper reads -> modulo a structural congruence. We keep every member of a congruence class as a distinct term and orient the equations as transitions; cong_iff_admin shows the congruence is exactly their equivalence closure.
+congruence (2nd eqn)	Eq. (7)	S_Seq_Mid	reformulated	As above.
+congruence (3rd eqn)	Eq. (7)	S_Seq_Exit	reformulated	As above.
+evaluation context E[.]	Eq. (5)	S_Ctx_Seq_L	reformulated	The paper's E[I] notation makes context closure implicit; we make it an explicit rule.
+evaluation context E[.]	Eq. (5)	S_Ctx_Seq_R	reformulated	As above.
+evaluation context E[.]	Eq. (5)	S_Ctx_Loop	reformulated	As above.
+
+# --- finer-grained small-step semantics (fss) ----------------------------
+AsnSet_fss + AsnClear_fss	Fig. 11a	FS_Asn	repaired	AsnSet_fss carries e <> nil while AsnClear_fss carries no guard at all, so fss already moves where ss is stuck. We merge both into one odot-based rule, which agrees with the printed pair everywhere the printed pair is defined.
+AssertT_fss	Fig. 11a	FS_AssertT	extended	Loop entry: s(X) = t versus s x <> Vnil.
+AssertF_fss	Fig. 11a	FS_AssertF	identical	s(X) = f and s x = Vnil coincide.
+TestT_fss	Fig. 11a	FS_TestT	extended	Loop exit: s(Y) = t versus s y <> Vnil.
+TestF_fss	Fig. 11a	FS_TestF	identical	s(Y) = f and s y = Vnil coincide.
+context E_fss[.]	Fig. 11a	FS_Ctx	reformulated	Explicit context closure, as for ss.

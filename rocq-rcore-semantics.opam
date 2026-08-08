@@ -1,0 +1,42 @@
+opam-version: "2.0"
+synopsis: "A Rocq mechanization of the meta-level reversible small-step semantics of R-CORE"
+description: """
+An axiom-free Rocq development of the reversible core language R-CORE:
+determinism in both directions, the equivalence of its denotational,
+token-based small-step and flowchart-based finer-grained semantics, a
+verified interpreter and syntactic inverter, and full abstraction.
+
+The whole development is the single self-contained file proofs.v and
+needs nothing beyond the Rocq standard library.  The pin below records
+the toolchain the development is checked against; README.md says what is
+proved and tools/audit.sh enforces the axiom-free claim.
+"""
+maintainer: ["Tetsuo Yokoyama <t2o@acm.org>"]
+authors: ["Karin Ebisu" "Toya Makino" "Tetsuo Yokoyama"]
+license: "MIT"
+homepage: "https://github.com/yokoyama-lab/rcore-semantics"
+bug-reports: "https://github.com/yokoyama-lab/rcore-semantics/issues"
+dev-repo: "git+https://github.com/yokoyama-lab/rcore-semantics.git"
+
+depends: [
+  "rocq-prover" {>= "9.0"}
+  "ocaml" {>= "4.14"}          # only for `make extract-test`
+]
+
+build: [
+  [make "-j%{jobs}%"]
+  [make "check"]
+  [make "audit"]
+]
+run-test: [
+  [make "correspondence"]
+  [make "extract-test"]
+]
+install: []
+
+tags: [
+  "keyword:reversible computing"
+  "keyword:operational semantics"
+  "keyword:determinism"
+  "logpath:RCore"
+]

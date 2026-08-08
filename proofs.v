@@ -413,9 +413,10 @@ Proof. intros x H; inversion H; congruence. Qed.
 
 (* Well-formedness is decidable: [nf_expr] and [wf_cmd] reduce to
    disequality tests on [var := Fin.t 10], which is itself decidable.
-   This gives the syntactic check a reversible interpreter or debugger
-   performs once per program (Sect.~7 of the letter) an actual
-   decision procedure, not just a proposition. *)
+   This gives the syntactic check the letter's Sect. 3 appeals to, run
+   once per program, an actual decision procedure rather than just a
+   proposition.  For the CONTROLLED command that Theorem 2 of the
+   letter hypothesizes, see [wf_cc_dec] in Sect. 41C. *)
 Definition nf_expr_dec (x : var) (e : expr) : {nf_expr x e} + {~ nf_expr x e}.
 Proof.
   destruct e as [y | | y | y | y z | y z].
@@ -4034,6 +4035,209 @@ Print Assumptions gap_witness2_paper_fss_moves.
 Print Assumptions rc2026_printed_fss_moves_where_ss_is_stuck.
 
 (* ----------------------------------------------------------------- *)
+(* 41B''. The printed ds rules (Fig. 2c)                              *)
+(*                                                                    *)
+(*  Sect. 2 of the letter reads three printed rule sets against one   *)
+(*  another.  Two of them are transcribed above; this transcribes     *)
+(*  the third, so that NO leg of the diagnosis rests on the repaired  *)
+(*  [exec_ds] standing in for the printed rule.  Fig. 2c, p. 204,     *)
+(*  prints                                                            *)
+(*                                                                    *)
+(*     C[[X ^= E]](s + {X -> d}) = s + {X -> d (+) e}                 *)
+(*        where  (E,s) -> (e,(E,s))                                   *)
+(*        and    d = nil \/ (d = e /\ d <> nil)                       *)
+(*                                                                    *)
+(*  The side condition is written out below as the disjunction the    *)
+(*  figure prints, NOT as [odot (s x) v = Some _]: the whole point of *)
+(*  a transcription is that a reader can hold it beside the figure.   *)
+(*  [ds_paper_side_iff_odot] then proves the disjunction is exactly   *)
+(*  the domain of [odot], which is the precise sense in which our     *)
+(*  [D_Asn] REFORMULATES the printed rule rather than changing it --  *)
+(*  and, with [ds_paper_asn_agrees], the sense in which the letter    *)
+(*  may say that the printed ds "is defined there" on the witnesses.  *)
+(*                                                                    *)
+(*  The loop rules are transcribed with the printed guards, which     *)
+(*  test equality with [t] rather than difference from [nil]; ours    *)
+(*  extend them, exactly as for the printed ss loop guards.           *)
+(*                                                                    *)
+(*  One reading is inherited and remains ours, not the paper's: the   *)
+(*  paper writes the store as [s + {X -> d}] and evaluates E in [s],  *)
+(*  which does not carry X, whereas [eval_expr] below sees the whole  *)
+(*  store.  Sect. 41B''' isolates exactly what that reading costs.    *)
+(* ----------------------------------------------------------------- *)
+
+Inductive ds_paper : cmd -> store -> store -> Prop :=
+  | PD_Asn  : forall x e s v_e v_new,
+      eval_expr s e = Some v_e ->
+      (s x = Vnil \/ (s x = v_e /\ s x <> Vnil)) ->  (* the printed side condition *)
+      odot (s x) v_e = Some v_new ->
+      ds_paper (Cass x e) s (update s x v_new)
+  | PD_Seq  : forall c1 c2 s s1 s2,
+      ds_paper c1 s s1 -> ds_paper c2 s1 s2 ->
+      ds_paper (Cseq c1 c2) s s2
+  | PD_Loop : forall x c y s s',
+      s x = Vt ->                        (* the printed entry test [X = t] *)
+      loop_paper x c y s s' ->
+      ds_paper (Cloop x c y) s s'
+
+with loop_paper : var -> cmd -> var -> store -> store -> Prop :=
+  | PL_Base : forall x c y s,
+      s y = Vt ->                        (* the printed exit test [Y = t] *)
+      loop_paper x c y s s
+  | PL_Rec  : forall x c y s s1 s2,
+      s y = Vnil ->
+      ds_paper c s s1 ->
+      s1 x = Vnil ->
+      loop_paper x c y s1 s2 ->
+      loop_paper x c y s s2.
+
+(* The printed side condition is exactly the domain of [odot]. *)
+Lemma ds_paper_side_iff_odot : forall d e,
+    (d = Vnil \/ (d = e /\ d <> Vnil)) <-> (exists v, odot d e = Some v).
+Proof.
+  intros d e; split.
+  - intros [H | [H1 H2]].
+    + subst; exists e; reflexivity.
+    + destruct d as [| d1 d2]; [congruence |].
+      unfold odot; rewrite <- H1.
+      destruct (val_eq_dec (Vpair d1 d2) (Vpair d1 d2)) as [_ | Hne];
+        [exists Vnil; reflexivity | congruence].
+  - intros [v Hv]; destruct d as [| d1 d2]; [now left | right].
+    unfold odot in Hv.
+    destruct (val_eq_dec (Vpair d1 d2) e) as [Heq | Hne];
+      [split; [exact Heq | discriminate] | discriminate].
+Qed.
+
+(* On assignments the printed rule and ours denote the same relation:
+   the disjunction and the [odot] equation cut out the same domain. *)
+Lemma ds_paper_asn_agrees : forall x e s s',
+    ds_paper (Cass x e) s s' <-> exec_ds (Cass x e) s s'.
+Proof.
+  intros x e s s'; split; intro H; inversion H; subst.
+  - eapply D_Asn; eauto.
+  - eapply PD_Asn; eauto.
+    apply ds_paper_side_iff_odot; eauto.
+Qed.
+
+(* The two gap witnesses are denoted by the PRINTED ds, not merely by
+   ours.  This is the leg of the diagnosis that Sect. 2 of the letter
+   states as "Asn_ds (Fig. 2c) is defined there". *)
+Example gap_witness_paper_ds : ds_paper (X0 ^= Enil) nil_store nil_store.
+Proof.
+  replace nil_store with (update nil_store X0 Vnil) at 2 by reflexivity.
+  apply PD_Asn with (v_e := Vnil);
+    [reflexivity | left; reflexivity | reflexivity].
+Qed.
+
+Example gap_witness2_paper_ds :
+  ds_paper (X0 ^= Eeq X1 X2) neq_store neq_store.
+Proof.
+  replace neq_store with (update neq_store X0 Vnil) at 2 by reflexivity.
+  apply PD_Asn with (v_e := Vnil);
+    [reflexivity | left; reflexivity | reflexivity].
+Qed.
+
+(* The diagnosis with EVERY leg against a transcribed printed rule:
+   the printed ds denotes the command, the printed ss admits no step
+   at all, and the printed fss traverses it.  Compare
+   [rc2026_printed_fss_moves_where_ss_is_stuck], whose ds leg uses the
+   repaired [exec_ds]; this is the statement the letter should cite. *)
+Theorem rc2026_theorem1_fails_as_printed_all_printed :
+  exists c s,
+    wf_cmd c /\
+    ds_paper c s s /\
+    (forall t, ~ ss_paper (CC_at_pre c, s) t) /\
+    fstep_paper_asn (CF_pre (translate c F_nil), s) (CF_pre F_nil, s).
+Proof.
+  exists (X0 ^= Enil), nil_store.
+  repeat split;
+    auto using gap_witness_wf, gap_witness_paper_ds,
+               gap_witness_paper_ss_stuck, gap_witness_paper_fss_moves.
+Qed.
+
+(* The printed ds loop guard is stricter than ours in the same way the
+   printed ss loop guard is: it demands [t], not merely "not nil". *)
+Example ds_paper_loop_guard_is_stricter :
+  forall c y s, s X0 <> Vnil -> s X0 <> Vt ->
+    ~ (exists s', ds_paper (Cloop X0 c y) s s').
+Proof. intros c y s _ Hne [s' H]; inversion H; subst; congruence. Qed.
+
+Print Assumptions ds_paper_side_iff_odot.
+Print Assumptions ds_paper_asn_agrees.
+Print Assumptions gap_witness_paper_ds.
+Print Assumptions gap_witness2_paper_ds.
+Print Assumptions rc2026_theorem1_fails_as_printed_all_printed.
+Print Assumptions ds_paper_loop_guard_is_stricter.
+
+(* ----------------------------------------------------------------- *)
+(* 41B'''. Which store the printed rules evaluate E in                *)
+(*                                                                    *)
+(*  The paper writes the assignment rules over [s + {X -> d}] and     *)
+(*  evaluates E in [s], which does not carry X; we evaluate E in the  *)
+(*  whole store.  Our store is total ([Vector.t val 10]), so it       *)
+(*  cannot literally omit X, and WHICH store the [+] notation intends *)
+(*  is a reading of the paper's text that no theorem can settle.      *)
+(*                                                                    *)
+(*  What IS a theorem is everything that reading costs.  Reading E in *)
+(*  a store that omits X is exactly asking that the value of E not    *)
+(*  depend on what the store says about X, i.e. [eval_indep_of].      *)
+(*  Below: well-formedness gives it ([nf_expr_implies_eval_indep]),   *)
+(*  so on well-formed assignments the two readings agree and the      *)
+(*  question is empty; without well-formedness they genuinely differ  *)
+(*  ([eval_readings_differ_without_wf]), so the question is not       *)
+(*  vacuous either.  The converse fails: [X ^= =? X X] is independent *)
+(*  of X without being well-formed ([eval_indep_not_implies_nf]), so  *)
+(*  well-formedness is strictly stronger than the two readings need.  *)
+(* ----------------------------------------------------------------- *)
+
+Definition eval_indep_of (x : var) (e : expr) : Prop :=
+  forall s v1 v2, eval_expr (update s x v1) e = eval_expr (update s x v2) e.
+
+Lemma nf_expr_implies_eval_indep :
+  forall x e, nf_expr x e -> eval_indep_of x e.
+Proof.
+  intros x e Hnf s v1 v2.
+  now rewrite (@eval_expr_update_invariant x e s v1 Hnf),
+              (@eval_expr_update_invariant x e s v2 Hnf).
+Qed.
+
+(* The letter's "for a well-formed assignment the two agree, since X
+   does not occur in E", as a theorem. *)
+Theorem eval_readings_agree_on_wf : forall x e s d,
+    nf_expr x e -> eval_expr (update s x d) e = eval_expr s e.
+Proof. intros x e s d Hnf; now apply eval_expr_update_invariant. Qed.
+
+(* Without well-formedness the two readings really do disagree, so the
+   choice of store is not a distinction without a difference. *)
+Theorem eval_readings_differ_without_wf :
+  exists x e s v1 v2,
+    ~ nf_expr x e /\
+    eval_expr (update s x v1) e <> eval_expr (update s x v2) e.
+Proof.
+  exists X0, (Evar X0), nil_store, Vnil, Vt.
+  split.
+  - intro H; inversion H; congruence.
+  - simpl; rewrite !update_eq; discriminate.
+Qed.
+
+(* But well-formedness is strictly stronger than the readings require:
+   [=? X X] is constantly [t], so it does not depend on X at all. *)
+Theorem eval_indep_not_implies_nf :
+  exists x e, eval_indep_of x e /\ ~ nf_expr x e.
+Proof.
+  exists X0, (Eeq X0 X0); split.
+  - intros s v1 v2; simpl; rewrite !update_eq.
+    destruct (val_eq_dec v1 v1) as [_ | H1]; [| congruence].
+    destruct (val_eq_dec v2 v2) as [_ | H2]; [reflexivity | congruence].
+  - intro H; inversion H; congruence.
+Qed.
+
+Print Assumptions nf_expr_implies_eval_indep.
+Print Assumptions eval_readings_agree_on_wf.
+Print Assumptions eval_readings_differ_without_wf.
+Print Assumptions eval_indep_not_implies_nf.
+
+(* ----------------------------------------------------------------- *)
 (* 41C. The structural congruence                                     *)
 (*                                                                    *)
 (*  The paper reads [->] modulo the structural congruence of Eq. (7), *)
@@ -4152,6 +4356,40 @@ Proof.
     try (apply wf_in_lp; tauto).
 Qed.
 
+(* Decidability of well-formedness for CONTROLLED commands.  Theorem 2
+   of the letter hypothesizes [wf_cc] of the common target, so this,
+   and NOT [wf_cmd_dec], is the decision procedure that discharges its
+   side condition.  It is [wf_cmd_dec] transported along
+   [wf_cc_iff_erase]: a step moves the token but never changes the
+   underlying command, so deciding the erasure decides the controlled
+   command. *)
+Definition wf_cc_dec (cc : cont_cmd) : {wf_cc cc} + {~ wf_cc cc}.
+Proof.
+  destruct (wf_cmd_dec (cc_erase cc)) as [H | H].
+  - left;  apply wf_cc_iff_erase; exact H.
+  - right; intro Hcc; apply H, wf_cc_iff_erase; exact Hcc.
+Defined.
+
+(* It decides both ways: it accepts a well-formed controlled command
+   and rejects the self-assignment that backward determinism excludes. *)
+Example wf_cc_dec_accepts :
+  if wf_cc_dec (CC_at_pre (X0 ^= Enil)) then True else False.
+Proof.
+  destruct (wf_cc_dec (CC_at_pre (X0 ^= Enil))) as [H | H]; [exact I |].
+  exfalso; apply H, wf_pre, wf_Cass, nf_Enil.
+Qed.
+
+Example wf_cc_dec_rejects :
+  if wf_cc_dec (CC_at_pre (X0 ^= Evar X0)) then False else True.
+Proof.
+  destruct (wf_cc_dec (CC_at_pre (X0 ^= Evar X0))) as [H | H]; [| exact I].
+  exfalso; apply wf_cc_iff_erase in H; simpl in H.
+  inversion H; subst; eapply nf_expr_not_self; eauto.
+Qed.
+
+Print Assumptions wf_cc_dec_accepts.
+Print Assumptions wf_cc_dec_rejects.
+
 Theorem cc_cong_preserves_wf : forall cc1 cc2,
     cc_cong cc1 cc2 -> (wf_cc cc1 <-> wf_cc cc2).
 Proof.
@@ -4166,6 +4404,693 @@ Print Assumptions cong_iff_admin.
 Print Assumptions cc_cong_erase.
 Print Assumptions cc_cong_preserves_wf.
 
+(* ================================================================= *)
+(* 41D. Determinism of the PRINTED rules, an executable stepper,      *)
+(*      where the amended rules are stuck, halting, and the inverter  *)
+(*      at the small-step level.                                      *)
+(*                                                                    *)
+(*  Five additions, in the order they depend on one another.          *)
+(*                                                                    *)
+(*  B. The printed rules of Fig. 9b are DETERMINISTIC.  This sharpens *)
+(*     the diagnosis of Sect. 41A: what the printed assignment rule   *)
+(*     loses is coverage, not determinism.  The defect is that it is  *)
+(*     stuck where ds is defined, and nothing more.                   *)
+(*                                                                    *)
+(*  F. [step_fun] decides the transition relation, so the semantics   *)
+(*     is executable and not merely inductively defined.              *)
+(*                                                                    *)
+(*  A. With [step_fun] in hand, stuckness is decidable, and the       *)
+(*     amended assignment rule is stuck ONLY when the expression or   *)
+(*     the update operator is undefined, never because of a premise   *)
+(*     about [nil].  That is exactly the contrast with Fig. 9b, and   *)
+(*     it says the repair of Sect. 41A is sufficient, not just        *)
+(*     necessary.                                                     *)
+(*                                                                    *)
+(*  D. Iterating [step_fun] halts at the terminal configuration       *)
+(*     exactly when ds is defined, and a run that never halts has no  *)
+(*     denotation.  The converse is NOT claimed: see the comment at   *)
+(*     [ss_diverges_implies_ds_undefined].                            *)
+(*                                                                    *)
+(*  C. One forward step of [C] is one forward step of [inv C] taken   *)
+(*     in the opposite direction.  The paper's inverter is proved     *)
+(*     correct denotationally ([inv_correct]); this is the same fact  *)
+(*     one step at a time, which is what meta-level reversibility     *)
+(*     actually asks for.                                             *)
+(* ================================================================= *)
+
+(* ---------------- B: determinism of the PRINTED rules ---------------- *)
+
+Lemma ss_paper_asn_deterministic :
+  forall cfg cfg1 cfg2,
+    ss_paper_asn cfg cfg1 -> ss_paper_asn cfg cfg2 -> cfg1 = cfg2.
+Proof.
+  intros cfg cfg1 cfg2 H1 H2.
+  inversion H1; subst; inversion H2; subst; congruence.
+Qed.
+
+Lemma ss_paper_loop_deterministic :
+  forall cfg cfg1 cfg2,
+    ss_paper_loop cfg cfg1 -> ss_paper_loop cfg cfg2 -> cfg1 = cfg2.
+Proof.
+  intros cfg cfg1 cfg2 H1 H2.
+  inversion H1; subst; inversion H2; subst; unfold Vt in *; congruence.
+Qed.
+
+(* Nothing steps from a fully executed command, so the apparent overlap
+   at [CC_in_loop x (CC_at_post c) y] between P_LoopIter2 and the loop
+   context rule is vacuous. *)
+Lemma ss_paper_at_post_stuck :
+  forall c s cfg, ~ ss_paper (CC_at_post c, s) cfg.
+Proof.
+  intros c s cfg H; inversion H; subst;
+    match goal with
+    | [ Ha : ss_paper_asn _ _ |- _ ] => inversion Ha
+    | [ Hl : ss_paper_loop _ _ |- _ ] => inversion Hl
+    end.
+Qed.
+
+Theorem ss_paper_deterministic :
+  forall cfg cfg1 cfg2,
+    ss_paper cfg cfg1 -> ss_paper cfg cfg2 -> cfg1 = cfg2.
+Proof.
+  intros cfg cfg1 cfg2 H1; revert cfg2.
+  induction H1; intros cfg2 H2; inversion H2; subst;
+    (* an assignment rule and a loop rule cannot fire at the same shape *)
+    try (exfalso;
+         match goal with
+         | [ Ha : ss_paper_asn _ _, Hl : ss_paper_loop _ _ |- _ ] =>
+             inversion Ha; subst; inversion Hl
+         end);
+    (* an assignment/loop rule cannot fire at a context shape *)
+    try (match goal with
+         | [ Ha : ss_paper_asn _ _ |- _ ] => solve [inversion Ha]
+         end);
+    try (match goal with
+         | [ Hl : ss_paper_loop _ _ |- _ ] => solve [inversion Hl]
+         end);
+    try (now eapply ss_paper_asn_deterministic; eauto);
+    try (now eapply ss_paper_loop_deterministic; eauto);
+    (* context cases: the induction hypothesis pins the subconfiguration *)
+    try (match goal with
+         | [ IH : forall c, ss_paper _ c -> _ , Hs : ss_paper _ _ |- _ ] =>
+             specialize (IH _ Hs); injection IH; intros; subst; reflexivity
+         end);
+    (* P_LoopIter2 vs the loop context rule: the body is [CC_at_post], stuck *)
+    (* P_LoopIter2 vs the loop context rule.  P_LoopIter2 forces the body
+       to be [CC_at_post], from which nothing steps, so the overlap is
+       vacuous. *)
+    try (exfalso;
+         match goal with
+         | [ Hl : ss_paper_loop (CC_in_loop _ _ _, _) _ |- _ ] =>
+             inversion Hl; subst
+         end;
+         match goal with
+         | [ Hs : ss_paper (CC_at_post _, _) _ |- _ ] =>
+             eapply ss_paper_at_post_stuck; exact Hs
+         end).
+Qed.
+
+(* ---------------- F: an executable one-step function ---------------- *)
+
+Fixpoint step_fun (cc : cont_cmd) (s : store) : option (cont_cmd * store) :=
+  match cc with
+  | CC_at_pre (Cass x e) =>
+      match eval_expr s e with
+      | Some v_e =>
+          match odot (s x) v_e with
+          | Some v_new => Some (CC_at_post (Cass x e), update s x v_new)
+          | None       => None
+          end
+      | None => None
+      end
+  | CC_at_pre (Cseq c1 c2)  => Some (CC_seq_L (CC_at_pre c1) c2, s)
+  | CC_at_pre (Cloop x c y) =>
+      if val_eq_dec (s x) Vnil then None else Some (CC_mid_loop x c y, s)
+  | CC_at_post _ => None
+  | CC_mid_loop x c y =>
+      if val_eq_dec (s y) Vnil
+      then Some (CC_in_loop x (CC_at_pre c) y, s)
+      else Some (CC_at_post (Cloop x c y), s)
+  | CC_seq_L cc1 c2 =>
+      match cc1 with
+      | CC_at_post c1 => Some (CC_seq_R c1 (CC_at_pre c2), s)
+      | _ => match step_fun cc1 s with
+             | Some (cc1', s') => Some (CC_seq_L cc1' c2, s')
+             | None => None
+             end
+      end
+  | CC_seq_R c1 cc2 =>
+      match cc2 with
+      | CC_at_post c2 => Some (CC_at_post (Cseq c1 c2), s)
+      | _ => match step_fun cc2 s with
+             | Some (cc2', s') => Some (CC_seq_R c1 cc2', s')
+             | None => None
+             end
+      end
+  | CC_in_loop x cc1 y =>
+      match cc1 with
+      | CC_at_post c =>
+          if val_eq_dec (s x) Vnil then Some (CC_mid_loop x c y, s) else None
+      | _ => match step_fun cc1 s with
+             | Some (cc1', s') => Some (CC_in_loop x cc1' y, s')
+             | None => None
+             end
+      end
+  end.
+
+Theorem step_fun_correct :
+  forall cc s cfg', step_fun cc s = Some cfg' <-> exec_ss (cc, s) cfg'.
+Proof.
+  intros cc s cfg'; split; revert cfg'.
+  - (* the function only reports genuine steps *)
+    induction cc as [c | c | x c y | cc1 IH1 c2 | c1 cc2 IH2 | x cc1 IH1 y];
+      intros cfg' H; simpl in H.
+    + destruct c as [x e | c1 c2 | x c y]; simpl in H.
+      * destruct (eval_expr s e) as [v_e|] eqn:He; [| discriminate].
+        destruct (odot (s x) v_e) as [v_new|] eqn:Ho; [| discriminate].
+        injection H; intros; subst; eapply S_Asn; eauto.
+      * injection H; intros; subst; apply S_Seq_Enter.
+      * destruct (val_eq_dec (s x) Vnil) as [Hx|Hx]; [discriminate |].
+        injection H; intros; subst; apply S_LoopEnter; exact Hx.
+    + discriminate.
+    + destruct (val_eq_dec (s y) Vnil) as [Hy|Hy];
+        injection H; intros; subst;
+        [apply S_LoopIter1; exact Hy | apply S_LoopExit; exact Hy].
+    + destruct cc1; try (injection H; intros; subst; apply S_Seq_Mid);
+        destruct (step_fun _ s) as [[cc1' s']|] eqn:Hs; try discriminate;
+        injection H; intros; subst; apply S_Ctx_Seq_L, IH1; first [exact Hs | reflexivity].
+    + destruct cc2; try (injection H; intros; subst; apply S_Seq_Exit);
+        destruct (step_fun _ s) as [[cc2' s']|] eqn:Hs; try discriminate;
+        injection H; intros; subst; apply S_Ctx_Seq_R, IH2; first [exact Hs | reflexivity].
+    + destruct cc1;
+        try (destruct (step_fun _ s) as [[cc1' s']|] eqn:Hs; try discriminate;
+             injection H; intros; subst; apply S_Ctx_Loop, IH1; first [exact Hs | reflexivity]).
+      destruct (val_eq_dec (s x) Vnil) as [Hx|Hx]; [| discriminate].
+      injection H; intros; subst; apply S_LoopIter2; exact Hx.
+  - (* every step is reported *)
+    intros cfg' H; remember (cc, s) as cfg eqn:E; revert cc s E.
+    induction H; intros cc0 s0 E; inversion E; subst; simpl;
+      try reflexivity.
+    + rewrite H, H0; reflexivity.
+    + destruct (val_eq_dec (s0 x) Vnil) as [Hx|Hx]; [contradiction | reflexivity].
+    + destruct (val_eq_dec (s0 y) Vnil) as [Hy|Hy]; [contradiction | reflexivity].
+    + destruct (val_eq_dec (s0 y) Vnil) as [Hy|Hy]; [reflexivity | contradiction].
+    + destruct (val_eq_dec (s0 x) Vnil) as [Hx|Hx]; [reflexivity | contradiction].
+    + destruct cc; try (rewrite (IHexec_ss _ _ eq_refl); reflexivity).
+      exfalso; eapply no_step_from_at_post; eauto.
+    + destruct cc; try (rewrite (IHexec_ss _ _ eq_refl); reflexivity).
+      exfalso; eapply no_step_from_at_post; eauto.
+    + destruct cc; try (rewrite (IHexec_ss _ _ eq_refl); reflexivity).
+      exfalso; eapply no_step_from_at_post; eauto.
+Qed.
+
+(* ---------------- A: where the amended rules are stuck -------------- *)
+
+(* Stuckness is decidable, and decided by [step_fun]. *)
+Theorem ss_stuck_iff_step_fun_none :
+  forall cc s, (forall cfg, ~ exec_ss (cc, s) cfg) <-> step_fun cc s = None.
+Proof.
+  intros cc s; split.
+  - intros Hstuck. destruct (step_fun cc s) as [cfg|] eqn:Hf; [| reflexivity].
+    exfalso; eapply Hstuck, step_fun_correct; exact Hf.
+  - intros Hf cfg Hstep. apply step_fun_correct in Hstep. congruence.
+Qed.
+
+(* The repair is SUFFICIENT: wherever ds denotes an assignment, the
+   amended small-step rule makes exactly that step.  The printed rules
+   do not (rc2026_theorem1_fails_as_printed). *)
+Theorem ss_asn_covers_ds :
+  forall x e s s',
+    exec_ds (Cass x e) s s' ->
+    exec_ss (CC_at_pre (Cass x e), s) (CC_at_post (Cass x e), s').
+Proof.
+  intros x e s s' H; inversion H; subst; eapply S_Asn; eauto.
+Qed.
+
+(* And the amended assignment rule is stuck ONLY because the expression
+   or the update operator is undefined, never because of a premise about
+   [nil].  This is the exact contrast with Fig. 9b. *)
+Theorem ss_asn_stuck_iff :
+  forall x e s,
+    (forall cfg, ~ exec_ss (CC_at_pre (Cass x e), s) cfg)
+    <-> match eval_expr s e with
+        | None   => True
+        | Some v => odot (s x) v = None
+        end.
+Proof.
+  intros x e s. rewrite ss_stuck_iff_step_fun_none. simpl.
+  destruct (eval_expr s e) as [v|] eqn:He.
+  - destruct (odot (s x) v) as [v'|] eqn:Ho; split; intro H;
+      solve [discriminate | reflexivity | exact I | congruence].
+  - split; intro H; [exact I | reflexivity].
+Qed.
+
+(* ---------------- D: halting, and divergence -------------------------- *)
+
+Fixpoint steps_n (n : nat) (cc : cont_cmd) (s : store)
+  : option (cont_cmd * store) :=
+  match n with
+  | 0    => Some (cc, s)
+  | S m  => match step_fun cc s with
+            | Some (cc', s') => steps_n m cc' s'
+            | None           => None
+            end
+  end.
+
+Lemma steps_n_sound :
+  forall n cc s cc' s',
+    steps_n n cc s = Some (cc', s') -> exec_ss_star (cc, s) (cc', s').
+Proof.
+  induction n as [| n IH]; intros cc s cc' s' H; simpl in H.
+  - injection H; intros; subst; apply exec_ss_star_refl.
+  - destruct (step_fun cc s) as [[cc1 s1]|] eqn:Hf; [| discriminate].
+    eapply steps_cons; [apply step_fun_correct; exact Hf | eapply IH; exact H].
+Qed.
+
+Lemma steps_n_complete :
+  forall cfg cfg', exec_ss_star cfg cfg' ->
+    exists n, steps_n n (fst cfg) (snd cfg) = Some cfg'.
+Proof.
+  intros cfg cfg' H; induction H as [cfg | cfg1 cfg2 cfg3 Hstep Hstar IH].
+  - exists 0; destruct cfg; reflexivity.
+  - destruct IH as [n Hn]; exists (S n).
+    destruct cfg1 as [cc1 s1]; destruct cfg2 as [cc2 s2]; simpl in *.
+    rewrite (proj2 (step_fun_correct cc1 s1 (cc2, s2)) Hstep); exact Hn.
+Qed.
+
+(* One more step, taken at the END of a run. *)
+Lemma steps_n_snoc :
+  forall n cc s cc' s',
+    steps_n n cc s = Some (cc', s') ->
+    steps_n (S n) cc s = step_fun cc' s'.
+Proof.
+  induction n as [| n IH]; intros cc s cc' s' H; simpl in H.
+  - injection H; intros; subst; simpl.
+    destruct (step_fun cc' s') as [[a b]|]; reflexivity.
+  - destruct (step_fun cc s) as [[cc1 s1]|] eqn:Hf; [| discriminate].
+    simpl; rewrite Hf; apply IH; exact H.
+Qed.
+
+(* The executable stepper reaches the terminal configuration exactly when
+   the denotational semantics is defined.  This is the paper's Theorem 1
+   in the form the extracted interpreter actually uses. *)
+Theorem ss_halts_iff_ds_defined :
+  forall c s,
+    (exists n s', steps_n n (CC_at_pre c) s = Some (CC_at_post c, s'))
+    <-> (exists s', exec_ds c s s').
+Proof.
+  intros c s; split.
+  - intros [n [s' Hn]]; exists s'.
+    apply (proj2 (proj1 (semantic_equivalence_p c s s'))).
+    eapply steps_n_sound; exact Hn.
+  - intros [s' Hds].
+    apply (proj1 (proj1 (semantic_equivalence_p c s s'))) in Hds.
+    apply steps_n_complete in Hds; destruct Hds as [n Hn]; simpl in Hn.
+    exists n, s'; exact Hn.
+Qed.
+
+(* A run diverges when it can always take one more step.  Stating it this
+   way keeps the development constructive: no coinduction, no excluded
+   middle. *)
+Definition diverges (cc : cont_cmd) (s : store) : Prop :=
+  forall n, steps_n n cc s <> None.
+
+(* If the small-step run never halts, the denotational semantics is
+   undefined.  Note the CONVERSE is deliberately not claimed: "ds is
+   undefined" also covers configurations that are STUCK rather than
+   divergent (e.g. an assignment whose update operator is undefined,
+   ss_asn_stuck_iff), and separating the two cases requires excluded
+   middle, which this development does not assume. *)
+Theorem ss_diverges_implies_ds_undefined :
+  forall c s, diverges (CC_at_pre c) s -> forall s', ~ exec_ds c s s'.
+Proof.
+  intros c s Hdiv s' Hds.
+  apply (proj1 (proj1 (semantic_equivalence_p c s s'))) in Hds.
+  apply steps_n_complete in Hds; destruct Hds as [n Hn]; simpl in Hn.
+  apply (Hdiv (S n)).
+  erewrite steps_n_snoc by exact Hn; reflexivity.
+Qed.
+
+(* Contrapositive, in the form a reader wants: a terminating denotation
+   forces the run to halt in some number of executable steps. *)
+Corollary ds_defined_implies_not_diverges :
+  forall c s s', exec_ds c s s' -> ~ diverges (CC_at_pre c) s.
+Proof.
+  intros c s s' Hds Hdiv; eapply ss_diverges_implies_ds_undefined; eauto.
+Qed.
+
+(* ---------------- C: the syntactic inverter, at the small-step level -- *)
+
+(* Where the same point of execution sits in the inverted program. *)
+Fixpoint cc_inv (cc : cont_cmd) : cont_cmd :=
+  match cc with
+  | CC_at_pre   c      => CC_at_post (inv c)
+  | CC_at_post  c      => CC_at_pre  (inv c)
+  | CC_mid_loop x c y  => CC_mid_loop y (inv c) x
+  | CC_seq_L    cc1 c2 => CC_seq_R (inv c2) (cc_inv cc1)
+  | CC_seq_R    c1 cc2 => CC_seq_L (cc_inv cc2) (inv c1)
+  | CC_in_loop  x cc1 y => CC_in_loop y (cc_inv cc1) x
+  end.
+
+Definition cfg_inv (cfg : cont_cmd * store) : cont_cmd * store :=
+  (cc_inv (fst cfg), snd cfg).
+
+Lemma cc_inv_involutive : forall cc, cc_inv (cc_inv cc) = cc.
+Proof. induction cc; simpl; rewrite ?inv_involutive; congruence. Qed.
+
+Lemma update_cancel : forall s x v, update (update s x v) x (s x) = s.
+Proof.
+  intros s x v; apply store_ext; intro y.
+  destruct (Fin.eq_dec y x) as [->|Hy].
+  - now rewrite update_eq.
+  - now rewrite !update_neq by auto.
+Qed.
+
+(* Meta-level reversibility, realized syntactically: one forward step of
+   [C] is one forward step of [inv C] taken in the opposite direction.
+   Well-formedness is needed exactly where backward determinism needs it,
+   namely for the assignment rule. *)
+Theorem inv_step_reverses :
+  forall cfg cfg',
+    exec_ss cfg cfg' ->
+    wf_cc (fst cfg) ->
+    exec_ss (cfg_inv cfg') (cfg_inv cfg).
+Proof.
+  intros cfg cfg' H; induction H; intros Hwf; unfold cfg_inv in *; simpl in *.
+  - (* S_Asn *)
+    inversion Hwf as [c0 Hwc| | | | |]; subst.
+    inversion Hwc as [x0 e0 Hnf| |]; subst.
+    replace (CC_at_post (Cass x e), s)
+       with (CC_at_post (Cass x e), update (update s x v_new) x (s x))
+       by (rewrite update_cancel; reflexivity).
+    apply S_Asn with (v_e := v_e).
+    + rewrite (@eval_expr_update_invariant x e s v_new Hnf); exact H.
+    + rewrite update_eq; apply odot_inv; exact H0.
+  - apply S_LoopExit;  exact H.
+  - apply S_LoopEnter; exact H.
+  - apply S_LoopIter2; exact H.
+  - apply S_LoopIter1; exact H.
+  - apply S_Seq_Exit.
+  - apply S_Seq_Mid.
+  - apply S_Seq_Enter.
+  - apply S_Ctx_Seq_R; apply IHexec_ss; inversion Hwf; subst; assumption.
+  - apply S_Ctx_Seq_L; apply IHexec_ss; inversion Hwf; subst; assumption.
+  - apply S_Ctx_Loop;  apply IHexec_ss; inversion Hwf; subst; assumption.
+Qed.
+
+(* Computational checks for the new definitions. *)
+Example step_fun_on_gap_witness :
+  step_fun (CC_at_pre (X0 ^= Enil)) nil_store
+  = Some (CC_at_post (X0 ^= Enil), nil_store).
+Proof. reflexivity. Qed.
+
+Example step_fun_at_post_is_none :
+  forall c s, step_fun (CC_at_post c) s = None.
+Proof. reflexivity. Qed.
+
+Example cc_inv_mirrors_a_sequence :
+  cc_inv (CC_seq_L (CC_at_post (X0 ^= Enil)) (X1 ^= Enil))
+  = CC_seq_R (X1 ^= Enil) (CC_at_pre (X0 ^= Enil)).
+Proof. reflexivity. Qed.
+
+
+Print Assumptions ss_paper_asn_deterministic.
+Print Assumptions ss_paper_loop_deterministic.
+Print Assumptions ss_paper_at_post_stuck.
+Print Assumptions ss_paper_deterministic.
+Print Assumptions step_fun_correct.
+Print Assumptions step_fun_on_gap_witness.
+Print Assumptions step_fun_at_post_is_none.
+Print Assumptions ss_stuck_iff_step_fun_none.
+Print Assumptions ss_asn_covers_ds.
+Print Assumptions ss_asn_stuck_iff.
+Print Assumptions steps_n_sound.
+Print Assumptions steps_n_complete.
+Print Assumptions steps_n_snoc.
+Print Assumptions ss_halts_iff_ds_defined.
+Print Assumptions ss_diverges_implies_ds_undefined.
+Print Assumptions ds_defined_implies_not_diverges.
+Print Assumptions cc_inv_involutive.
+Print Assumptions cc_inv_mirrors_a_sequence.
+Print Assumptions update_cancel.
+Print Assumptions inv_step_reverses.
+(* ================================================================= *)
+(* 41E. The printed rules as a sub-relation, the backward semantics,   *)
+(*      inversion of whole runs, and programs on the command side.     *)
+(*                                                                    *)
+(*  Four gaps closed, three of them gaps in the DEFINITIONS rather     *)
+(*  than in the proofs.                                               *)
+(*                                                                    *)
+(*  1. [Vf].  [Vt] was defined but the paper's [f] existed only in a  *)
+(*     comment, so the printed loop guards could not be written down  *)
+(*     in the paper's own vocabulary.                                 *)
+(*                                                                    *)
+(*  2. The printed relation is a SUB-relation of the amended one      *)
+(*     ([ss_paper_included]).  With the gap witnesses of Sect. 41A    *)
+(*     this is the exact statement of the defect: Fig. 9b is sound    *)
+(*     but not complete.  Backward determinism for the printed rules  *)
+(*     is then inherited rather than reproved, so determinism of the  *)
+(*     printed rules holds in both directions, as the paper's         *)
+(*     Lemma 1 does.                                                  *)
+(*                                                                    *)
+(*  3. [bstep].  The paper says backward execution is the inverse     *)
+(*     relation, but the development never defined it.  It is         *)
+(*     deterministic on well-formed configurations (Theorem 2 in the  *)
+(*     form a reverse interpreter uses) and it is EXECUTABLE, by      *)
+(*     stepping the inverted program forwards.                        *)
+(*                                                                    *)
+(*  4. [inv_run_reverses] lifts [inv_step_reverses] from one step to  *)
+(*     a whole run.  The shared step count is the point: running the  *)
+(*     inverse costs exactly what running the original cost.          *)
+(*                                                                    *)
+(*  5. [prog].  The flowchart side had [flow_program]; the command    *)
+(*     side modelled the paper's [read X; C; write X] only implicitly *)
+(*     through [init_store].  Now both sides have the syntax.         *)
+(* ================================================================= *)
+
+(* ---- the paper's [f], for symmetry with [Vt] ---- *)
+Definition Vf : val := Vnil.
+Lemma Vt_neq_Vf : Vt <> Vf. Proof. discriminate. Qed.
+
+(* ---- the printed relation is SOUND for the amended one ---- *)
+Lemma ss_paper_asn_included :
+  forall cfg cfg', ss_paper_asn cfg cfg' -> exec_ss cfg cfg'.
+Proof.
+  intros cfg cfg' H.
+  inversion H as [x e s v_e He H1 H2 | x e s v_e He H1 H2]; subst.
+  - (* P_AsnSet: s x = nil, so odot nil v_e = Some v_e *)
+    apply S_Asn with (v_e := v_e); [exact He |].
+    rewrite H2; reflexivity.
+  - (* P_AsnClear: s x = v_e <> nil, so odot v_e v_e = Some nil.
+       [subst] has already replaced v_e by [s x] here. *)
+    apply S_Asn with (v_e := s x); [exact He |].
+    unfold odot; destruct (s x) as [| a b] eqn:Hsx.
+    + congruence.
+    + destruct (val_eq_dec (Vpair a b) (Vpair a b)) as [_ | Hne];
+        [reflexivity | congruence].
+Qed.
+
+Lemma ss_paper_loop_included :
+  forall cfg cfg', ss_paper_loop cfg cfg' -> exec_ss cfg cfg'.
+Proof.
+  intros cfg cfg' H; inversion H; subst.
+  - apply S_LoopEnter; unfold Vt in *; congruence.
+  - apply S_LoopExit;  unfold Vt in *; congruence.
+  - apply S_LoopIter1; assumption.
+  - apply S_LoopIter2; assumption.
+Qed.
+
+(* The printed rules are a SUB-relation of the amended ones: everything
+   Fig. 9b does, our rules do.  Together with the gap witnesses this is
+   the precise statement of the defect: the printed relation is sound
+   but not complete. *)
+Theorem ss_paper_included :
+  forall cfg cfg', ss_paper cfg cfg' -> exec_ss cfg cfg'.
+Proof.
+  intros cfg cfg' H; induction H.
+  - apply ss_paper_asn_included;  assumption.
+  - apply ss_paper_loop_included; assumption.
+  - apply S_Ctx_Seq_L; assumption.
+  - apply S_Ctx_Seq_R; assumption.
+  - apply S_Ctx_Loop;  assumption.
+Qed.
+
+(* Hence backward determinism for the printed rules is inherited, so
+   "the printed rules are deterministic" holds in both directions, as
+   the paper's Lemma 1 does. *)
+Theorem ss_paper_bwd_deterministic :
+  forall cfg1 cfg2 cfg,
+    wf_cc (fst cfg) ->
+    ss_paper cfg1 cfg -> ss_paper cfg2 cfg -> cfg1 = cfg2.
+Proof.
+  intros cfg1 cfg2 cfg Hwf H1 H2.
+  eapply ss_bwd_deterministic_tgt;
+    eauto using ss_paper_included.
+Qed.
+
+(* ---- determinism of the printed fss assignment rules ---- *)
+Theorem fstep_paper_asn_deterministic :
+  forall cfg cfg1 cfg2,
+    fstep_paper_asn cfg cfg1 -> fstep_paper_asn cfg cfg2 -> cfg1 = cfg2.
+Proof.
+  intros cfg cfg1 cfg2 H1 H2.
+  inversion H1; subst; inversion H2; subst; congruence.
+Qed.
+
+(* ---- inv preserves well-formedness (wf_cmd_inv is above) ---- *)
+Lemma wf_cc_cc_inv : forall cc, wf_cc cc -> wf_cc (cc_inv cc).
+Proof.
+  induction cc; intros H; inversion H; subst; simpl;
+    eauto using wf_cc, wf_cmd_inv.
+Qed.
+
+(* ---- the backward relation, which the paper defines but we never did -- *)
+
+(* The paper writes "backward execution is obtained by the inverse
+   relation <- = ->^-1".  Here it is. *)
+Definition bstep (cfg cfg' : cont_cmd * store) : Prop := exec_ss cfg' cfg.
+
+(* Theorem 2 of the letter, in the form a reverse interpreter uses: the
+   BACKWARD semantics is deterministic on well-formed configurations. *)
+Theorem bstep_deterministic :
+  forall cfg cfg1 cfg2,
+    wf_cc (fst cfg) -> bstep cfg cfg1 -> bstep cfg cfg2 -> cfg1 = cfg2.
+Proof.
+  unfold bstep; intros cfg cfg1 cfg2 Hwf H1 H2.
+  eapply ss_bwd_deterministic_tgt; eauto.
+Qed.
+
+(* And it is executable: step the inverted program forwards.  This is
+   [inv_step_reverses] turned into code. *)
+Definition bstep_fun (cc : cont_cmd) (s : store) : option (cont_cmd * store) :=
+  match step_fun (cc_inv cc) s with
+  | Some (d, s') => Some (cc_inv d, s')
+  | None         => None
+  end.
+
+Theorem bstep_fun_correct :
+  forall cc s cc' s',
+    wf_cc cc ->
+    (bstep_fun cc s = Some (cc', s') <-> bstep (cc, s) (cc', s')).
+Proof.
+  intros cc s cc' s' Hwf; unfold bstep_fun, bstep; split.
+  - intros Hb.
+    destruct (step_fun (cc_inv cc) s) as [[d s0]|] eqn:Hf; [| discriminate].
+    apply step_fun_correct in Hf.
+    apply (inv_step_reverses (cfg := (cc_inv cc, s)) (cfg' := (d, s0))) in Hf;
+      [| simpl; apply wf_cc_cc_inv; exact Hwf].
+    unfold cfg_inv in Hf; simpl in Hf.
+    rewrite cc_inv_involutive in Hf.
+    injection Hb; intros; subst; exact Hf.
+  - intros Hb.
+    assert (Hwf' : wf_cc cc') by (eapply wf_cc_step_reflected; eauto).
+    apply (inv_step_reverses (cfg := (cc', s')) (cfg' := (cc, s))) in Hb;
+      [| simpl; exact Hwf'].
+    unfold cfg_inv in Hb; simpl in Hb.
+    apply step_fun_correct in Hb. rewrite Hb, cc_inv_involutive. reflexivity.
+Qed.
+
+(* ---- inversion of a whole run ---- *)
+
+(* Running [inv C] from where [C] stopped returns to where [C] started,
+   in EXACTLY the same number of steps.  [inv_step_reverses] is the one
+   step version; this is the statement about executions, and the shared
+   [n] is the point: inversion costs nothing. *)
+Theorem inv_run_reverses :
+  forall n cc s cc' s',
+    wf_cc cc ->
+    steps_n n cc s = Some (cc', s') ->
+    steps_n n (cc_inv cc') s' = Some (cc_inv cc, s).
+Proof.
+  induction n as [| n IH]; intros cc s cc' s' Hwf H; simpl in H.
+  - injection H; intros; subst; reflexivity.
+  - destruct (step_fun cc s) as [[cc1 s1]|] eqn:Hf; [| discriminate].
+    assert (Hstep : exec_ss (cc, s) (cc1, s1)) by (apply step_fun_correct; exact Hf).
+    assert (Hwf1 : wf_cc cc1) by (eapply wf_cc_step_preserved; eauto).
+    specialize (IH _ _ _ _ Hwf1 H).
+    erewrite steps_n_snoc by exact IH.
+    apply (inv_step_reverses (cfg := (cc, s)) (cfg' := (cc1, s1))) in Hstep;
+      [| simpl; exact Hwf].
+    unfold cfg_inv in Hstep; simpl in Hstep.
+    apply step_fun_correct; exact Hstep.
+Qed.
+
+(* At the program level: [inv C] run from the final store reaches the
+   initial store, in the same number of steps. *)
+Corollary inv_program_run_reverses :
+  forall n c s s',
+    wf_cmd c ->
+    steps_n n (CC_at_pre c) s = Some (CC_at_post c, s') ->
+    steps_n n (CC_at_pre (inv c)) s' = Some (CC_at_post (inv c), s).
+Proof.
+  intros n c s s' Hwf H.
+  assert (Hw : wf_cc (CC_at_pre c)) by (apply wf_pre; exact Hwf).
+  pose proof (inv_run_reverses _ _ Hw H) as H'.
+  simpl in H'; exact H'.
+Qed.
+
+(* ---- programs, on the command side ---- *)
+
+(* The paper's [P ::= read X; C; write X].  The flowchart side already
+   has [flow_program]; this is its counterpart for ds and ss. *)
+Inductive prog : Type := Prog (x : var) (c : cmd).
+
+Definition wf_prog (p : prog) : Prop :=
+  match p with Prog _ c => wf_cmd c end.
+
+Definition prog_denot (p : prog) (d d' : val) : Prop :=
+  match p with Prog x c => exec_ds c (init_store x d) (init_store x d') end.
+
+Definition prog_inv (p : prog) : prog :=
+  match p with Prog x c => Prog x (inv c) end.
+
+Lemma prog_inv_involutive : forall p, prog_inv (prog_inv p) = p.
+Proof. intros [x c]; simpl; rewrite inv_involutive; reflexivity. Qed.
+
+Lemma wf_prog_inv : forall p, wf_prog p -> wf_prog (prog_inv p).
+Proof. intros [x c] H; simpl in *; apply wf_cmd_inv; exact H. Qed.
+
+(* The store map of a well-formed program is injective (the paper's
+   [P_ds] is partial injective), now stated over [prog]. *)
+Theorem prog_denot_injective :
+  forall p d1 d2 e,
+    wf_prog p -> prog_denot p d1 e -> prog_denot p d2 e -> d1 = d2.
+Proof.
+  intros [x c] d1 d2 e Hwf H1 H2; simpl in *.
+  eapply prog_data_injective; eauto.
+Qed.
+
+(* Computational checks. *)
+Example bstep_fun_undoes_step :
+  match step_fun (CC_at_pre (X0 ^= Evar X1)) (update nil_store X1 Vt) with
+  | Some (cc1, s1) =>
+      bstep_fun cc1 s1 = Some (CC_at_pre (X0 ^= Evar X1),
+                               update nil_store X1 Vt)
+  | None => False
+  end.
+Proof. reflexivity. Qed.
+
+Example printed_rules_are_included :
+  forall cfg cfg', ss_paper cfg cfg' -> exec_ss cfg cfg'.
+Proof. exact ss_paper_included. Qed.
+
+
+Print Assumptions Vt_neq_Vf.
+Print Assumptions ss_paper_asn_included.
+Print Assumptions ss_paper_loop_included.
+Print Assumptions ss_paper_included.
+Print Assumptions ss_paper_bwd_deterministic.
+Print Assumptions fstep_paper_asn_deterministic.
+Print Assumptions wf_cc_cc_inv.
+Print Assumptions bstep_deterministic.
+Print Assumptions bstep_fun_correct.
+Print Assumptions bstep_fun_undoes_step.
+Print Assumptions inv_run_reverses.
+Print Assumptions inv_program_run_reverses.
+Print Assumptions prog_inv_involutive.
+Print Assumptions wf_prog_inv.
+Print Assumptions prog_denot_injective.
+Print Assumptions printed_rules_are_included.
 (* ================================================================= *)
 (* 42. Axiom audit: every top-level result, in one place            *)
 (*                                                                    *)
@@ -4388,3 +5313,53 @@ Print Assumptions cong_iff_admin.
 Print Assumptions cc_cong_erase.
 Print Assumptions wf_cc_iff_erase.
 Print Assumptions cc_cong_preserves_wf.
+Print Assumptions wf_cc_dec_accepts.
+Print Assumptions wf_cc_dec_rejects.
+Print Assumptions ds_paper_side_iff_odot.
+Print Assumptions ds_paper_asn_agrees.
+Print Assumptions gap_witness_paper_ds.
+Print Assumptions gap_witness2_paper_ds.
+Print Assumptions rc2026_theorem1_fails_as_printed_all_printed.
+Print Assumptions ds_paper_loop_guard_is_stricter.
+Print Assumptions nf_expr_implies_eval_indep.
+Print Assumptions eval_readings_agree_on_wf.
+Print Assumptions eval_readings_differ_without_wf.
+Print Assumptions eval_indep_not_implies_nf.
+
+Print Assumptions ss_paper_asn_deterministic.
+Print Assumptions ss_paper_loop_deterministic.
+Print Assumptions ss_paper_at_post_stuck.
+Print Assumptions ss_paper_deterministic.
+Print Assumptions step_fun_correct.
+Print Assumptions step_fun_on_gap_witness.
+Print Assumptions step_fun_at_post_is_none.
+Print Assumptions ss_stuck_iff_step_fun_none.
+Print Assumptions ss_asn_covers_ds.
+Print Assumptions ss_asn_stuck_iff.
+Print Assumptions steps_n_sound.
+Print Assumptions steps_n_complete.
+Print Assumptions steps_n_snoc.
+Print Assumptions ss_halts_iff_ds_defined.
+Print Assumptions ss_diverges_implies_ds_undefined.
+Print Assumptions ds_defined_implies_not_diverges.
+Print Assumptions cc_inv_involutive.
+Print Assumptions cc_inv_mirrors_a_sequence.
+Print Assumptions update_cancel.
+Print Assumptions inv_step_reverses.
+
+Print Assumptions Vt_neq_Vf.
+Print Assumptions ss_paper_asn_included.
+Print Assumptions ss_paper_loop_included.
+Print Assumptions ss_paper_included.
+Print Assumptions ss_paper_bwd_deterministic.
+Print Assumptions fstep_paper_asn_deterministic.
+Print Assumptions wf_cc_cc_inv.
+Print Assumptions bstep_deterministic.
+Print Assumptions bstep_fun_correct.
+Print Assumptions bstep_fun_undoes_step.
+Print Assumptions inv_run_reverses.
+Print Assumptions inv_program_run_reverses.
+Print Assumptions prog_inv_involutive.
+Print Assumptions wf_prog_inv.
+Print Assumptions prog_denot_injective.
+Print Assumptions printed_rules_are_included.
