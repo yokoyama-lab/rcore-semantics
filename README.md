@@ -66,7 +66,7 @@ small-step semantics (**fss**). Among the results proved:
 
 The development is **axiom-free**: every top-level result prints
 `Closed under the global context` under `Print Assumptions`, and the
-final section audits all 212 of them in one build. Because
+final section audits every one of them in one build. Because
 `Print Assumptions` does not fail a build when a result *does* depend on
 an axiom, `make audit` (`tools/audit.sh`, run in CI) enforces the claim
 mechanically: it rejects any `Admitted`/`Axiom`/`Parameter`/`Conjecture`,
@@ -76,6 +76,105 @@ functional extensionality is not assumed: the ten-variable
 store of the paper is realized as a length-indexed vector
 (`var := Fin.t 10`, `store := Vector.t val 10`), which makes store
 extensionality a theorem.
+
+## Correspondence with the companion letter
+
+The companion letter states three theorems and one lemma and argues from a
+handful of further results.  This table names the identifier that proves
+each of them, so that the correspondence survives the letter's own appendix
+being shortened for length.
+
+The last block, *Also in the same file*, is here on purpose.  `proofs.v` is
+considerably larger than the results the letter states, and this is what the
+rest of it is; its size is not the price of those theorems.
+
+| Result | RC 2026 | Identifier in `proofs.v` |
+|---|---|---|
+| **Determinism** | | |
+| Theorem 1 (forward determinism) | Lemma 1, forward | `ss_step_deterministic` |
+| &nbsp;&nbsp;&nbsp;&nbsp;in the paper's own statement | Lemma 1, forward | `rev_com_forward` |
+| Lemma 1 (invariance), reflection | — | `wf_cc_step_reflected` |
+| Theorem 2 (backward determinism) | Lemma 1, backward | `ss_bwd_deterministic_tgt` \* |
+| &nbsp;&nbsp;&nbsp;&nbsp;both predecessors well-formed | Lemma 1, backward | `ss_bwd_deterministic` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the same, in the paper's phrasing | Lemma 1, backward | `rev_com_backward` |
+| &nbsp;&nbsp;&nbsp;&nbsp;preservation | — | `wf_cc_step_preserved` |
+| &nbsp;&nbsp;&nbsp;&nbsp;along a run | — | `ss_bwd_deterministic_reachable` |
+| &nbsp;&nbsp;&nbsp;&nbsp;well-formedness is decidable, command and controlled | — | `wf_cmd_dec`, `wf_cc_dec` |
+| &nbsp;&nbsp;&nbsp;&nbsp;self-assignment `X ^= X` is excluded by it | — | `nf_expr_not_self` |
+| **Divergences from the printed rules (Sect. 2)** | | |
+| the equivalence theorem does not hold as printed | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
+| &nbsp;&nbsp;&nbsp;&nbsp;from the assignment rules alone | Theorem 1 | `rc2026_theorem1_fails_as_printed` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the printed ss rules, transcribed | Fig. 9b | `ss_paper_asn`, `ss_paper_loop`, `ss_paper` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the printed ds rules, transcribed | Fig. 2c | `ds_paper`, `loop_paper` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its side condition is the domain of ⊙ | Fig. 2c | `ds_paper_side_iff_odot` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;so on assignments it is our `Asn_ds` | Fig. 2c | `ds_paper_asn_agrees` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and it denotes both witnesses | Fig. 2c | `gap_witness_paper_ds`, `gap_witness2_paper_ds` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its loop guard is stricter too | Fig. 2c | `ds_paper_loop_guard_is_stricter` |
+| &nbsp;&nbsp;&nbsp;&nbsp;every leg against a transcribed printed rule | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
+| &nbsp;&nbsp;&nbsp;&nbsp;only an assignment rule applies there | — | `exec_ss_from_pre_asn_inv` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the equality-test witness | Theorem 1 | `gap_witness2_wf`, `gap_witness2_ds` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on which the printed ss is stuck | Theorem 1 | `gap_witness2_paper_ss_stuck` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the printed fss rules, transcribed | Fig. 11a | `fstep_paper_asn` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on which witness 1 moves | Fig. 11a | `gap_witness_paper_fss_moves` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and witness 2 | Fig. 11a | `gap_witness2_paper_fss_moves` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the three facts in one statement | Theorem 1 | `rc2026_printed_fss_moves_where_ss_is_stuck` |
+| the printed loop guards are stricter | `Loop_ss` | `rc2026_loop_guards_are_stricter` |
+| &nbsp;&nbsp;&nbsp;&nbsp;a well-formed program reaches the witness | — | `odd_store_reachable` |
+| which store the printed rules evaluate `E` in | Fig. 9b | (a reading, not a theorem) |
+| &nbsp;&nbsp;&nbsp;&nbsp;the two readings agree on well-formed assignments | — | `eval_readings_agree_on_wf` |
+| &nbsp;&nbsp;&nbsp;&nbsp;and differ without well-formedness | — | `eval_readings_differ_without_wf` |
+| &nbsp;&nbsp;&nbsp;&nbsp;well-formedness is strictly stronger than needed | — | `eval_indep_not_implies_nf`, `nf_expr_implies_eval_indep` |
+| the store extensionality used throughout | — | `store_ext` |
+| the congruence, recovered as token movements | Eq. (7) | `cong_iff_admin` |
+| &nbsp;&nbsp;&nbsp;&nbsp;each movement is a step of → | — | `admin_step_is_ss` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the three oriented equations | — | `S_Seq_Enter`, `S_Seq_Mid`, `S_Seq_Exit` |
+| &nbsp;&nbsp;&nbsp;&nbsp;it never changes the program | — | `cc_cong_erase` |
+| &nbsp;&nbsp;&nbsp;&nbsp;hence well-formedness is class-invariant | — | `cc_cong_preserves_wf` |
+| **Semantic equivalence** | | |
+| Theorem 3 (three semantics) | Theorem 1 | `semantic_equivalence_p` † |
+| &nbsp;&nbsp;&nbsp;&nbsp;residual-flowchart reading | Theorem 1 | `semantic_equivalence` † |
+| &nbsp;&nbsp;&nbsp;&nbsp;program level | Theorem 1 | `prog_traversal_data` |
+| &nbsp;&nbsp;&nbsp;&nbsp;translation of `C` into a flowchart | — | `translate`, `translate_ctrl` |
+| &nbsp;&nbsp;&nbsp;&nbsp;each ss step is simulated by fss steps | Theorem 1 | `ss_step_implies_fss_steps` |
+| &nbsp;&nbsp;&nbsp;&nbsp;ss ⇔ fss | Theorem 1 | `semantic_equivalence_ss_fss` |
+| &nbsp;&nbsp;&nbsp;&nbsp;ds ⇔ fss | Theorem 1 | `semantic_equivalence_ds_fss` |
+| **Finer-grained semantics** | | |
+| fss, forward determinism (unconditional) | prose ‡ | `pstep_forward_deterministic` |
+| fss, backward determinism | prose ‡ | `pstep_backward_deterministic` |
+| &nbsp;&nbsp;&nbsp;&nbsp;counterexample | — | `fstep_not_backward_deterministic` |
+| &nbsp;&nbsp;&nbsp;&nbsp;within one flowchart | — | `fstep_backward_deterministic_pos` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hence along its executions | — | `fstep_backward_deterministic_reachable` |
+| **Consequences of determinism** | | |
+| (1) uniqueness of the terminal store | — | `ss_run_unique` |
+| &nbsp;&nbsp;&nbsp;&nbsp;configuration after *n* steps is unique | — | `ss_run_state_unique` |
+| &nbsp;&nbsp;&nbsp;&nbsp;shorter runs are prefixes of longer ones | — | `ss_run_prefix` |
+| &nbsp;&nbsp;&nbsp;&nbsp;maximal runs agree in length and endpoint | — | `ss_run_trace_unique` |
+| &nbsp;&nbsp;&nbsp;&nbsp;backward: same-length runs to a wf target agree at the start | — | `ss_run_state_unique_bwd` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hence at every step | — | `ss_run_trace_unique_bwd` |
+| (2) determinism of ds | prose ‡ | `ds_deterministic` |
+| (3) injectivity of the store map | prose ‡ | `ds_injective` |
+| &nbsp;&nbsp;&nbsp;&nbsp;data-level version (`read X; C; write X`) | prose ‡ | `prog_data_injective` |
+| **Also in the same file** | | |
+| Verified interpreter | — | `eval_cmd_correct` |
+| Syntactic inverter, correct | — | `inv_correct` |
+| &nbsp;&nbsp;&nbsp;&nbsp;unique | — | `inv_unique_cxt` |
+| &nbsp;&nbsp;&nbsp;&nbsp;`C; inv C` acts as identity (on `C`'s domain) | — | `inv_compose_id` |
+| &nbsp;&nbsp;&nbsp;&nbsp;`inv C; C` acts as identity (on `C`'s range) | — | `inv_compose_id_sym` |
+| &nbsp;&nbsp;&nbsp;&nbsp;`cmd_denot`(`inv` c) = converse of `cmd_denot`(c) | — | `cmd_denot_dagger` |
+| &nbsp;&nbsp;&nbsp;&nbsp;closure under taking the converse | — | `cmd_denot_dagger_image` |
+| &nbsp;&nbsp;&nbsp;&nbsp;anti-homomorphism for sequencing, semantically | — | `cmd_denot_inv_seq` |
+| Full abstraction | — | `full_abstraction` |
+| &nbsp;&nbsp;&nbsp;&nbsp;soundness | — | `fa_soundness` |
+| &nbsp;&nbsp;&nbsp;&nbsp;completeness | — | `fa_completeness` |
+
+\* strengthens `ss_bwd_deterministic`, which hypothesizes well-formedness of
+both predecessors.
+
+† the fixed-position reading of fss stated as Theorem 3 of the letter;
+`semantic_equivalence` is the same equivalence for the residual-flowchart
+reading.
+
+‡ asserted in the prose of the RC 2026 paper without proof.
 
 ## Determinism of the finer-grained semantics (fss)
 
