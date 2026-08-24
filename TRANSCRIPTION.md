@@ -1,3 +1,5 @@
+> 本文書は [`TRANSCRIPTION_en.md`](TRANSCRIPTION_en.md) の機械翻訳です。
+
 # 掲載された意味論規則の転写監査
 
 本文書は、論文に掲載された規則と、それを `proofs.v` に転写した関係とを
