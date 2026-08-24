@@ -30,13 +30,12 @@
 
      Letter:Thm 1 [thm:fwd]   forward determinism
                               = [ss_step_deterministic] / [rev_com_forward]
-     Letter:Lem 1 [lem:refl]  reflection of well-formedness
+     Letter:Lem 1 [lem:wf]    invariance of well-formedness
                               = [wf_cc_step_reflected]      (Sect. 32)
+                              + [wf_cc_step_preserved]      (Sect. 8)
      Letter:Thm 2 [thm:bwd]   backward determinism, hypothesising
                               well-formedness of the single COMMON TARGET
                               = [ss_bwd_deterministic_tgt]  (Sect. 32)
-     Letter:Lem 2 [lem:pres]  preservation of well-formedness
-                              = [wf_cc_step_preserved]      (Sect. 8)
      Letter:Thm 3 [thm:equiv] equivalence of ds, ss and fss
                               = [semantic_equivalence_p]    (Sect. 39)
                               in the fixed-position reading of fss that
@@ -536,7 +535,7 @@ Hint Constructors exec_ss : r_db.
 Notation "cfg1 '==>' cfg2" := (exec_ss cfg1 cfg2)
   (at level 70, no associativity) : rcore_scope.
 
-(* Steps preserve well-formedness (Letter:Lem 2). *)
+(* Steps preserve well-formedness (Letter:Lem 1, forward direction). *)
 Lemma wf_cc_step_preserved :
   forall cc s cc' s', exec_ss (cc, s) (cc', s') -> wf_cc cc -> wf_cc cc'.
 Proof.
@@ -2573,12 +2572,12 @@ Qed.
 (*  well-formedness of the single COMMON TARGET configuration instead *)
 (*  of both predecessors ([ss_bwd_deterministic_tgt]).                *)
 (*                                                                    *)
-(*  In the Letter these are Letter:Lem 1 (reflection) and Letter:Thm 2 *)
-(*  (backward determinism); Letter:Lem 2 (preservation) is            *)
-(*  [wf_cc_step_preserved] in Sect. 8.                                *)
+(*  In the Letter, reflection here and preservation                   *)
+(*  ([wf_cc_step_preserved] in Sect. 8) form Letter:Lem 1;            *)
+(*  backward determinism is Letter:Thm 2.                             *)
 (* ================================================================= *)
 
-(* Letter:Lem 1 (Reflection of well-formedness). *)
+(* Letter:Lem 1 (invariance of well-formedness), backward direction. *)
 Lemma wf_cc_step_reflected :
   forall cc s cc' s', exec_ss (cc, s) (cc', s') -> wf_cc cc' -> wf_cc cc.
 Proof.
