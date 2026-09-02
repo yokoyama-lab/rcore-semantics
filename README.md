@@ -25,7 +25,7 @@ small-step semantics (**fss**). Among the results proved:
 | Result | Identifier |
 |---|---|
 | **Theorem 1 of the paper fails as printed.** `AsnSet_ss` requires `e ≠ nil` and `AsnClear_ss` requires `d ≠ nil`, so ss is stuck when the target and the value of the right-hand side are both `nil`, while `Asn_ds` is defined there and `AsnClear_fss` carries no such premise. `S_Asn` merges the two rules and closes the gap | `rc2026_theorem1_fails_as_printed_full` (whole printed relation), `rc2026_theorem1_fails_as_printed` (assignment rules alone), `ss_paper`, `ss_paper_asn`, `exec_ss_from_pre_asn_inv` |
-| **The printed loop guards are stricter than ours.** They test equality with `t` and `f`; since the data domain is all binary trees over `nil`, a variable can hold a value that is neither, and there the printed rules are stuck. A two-line well-formed program reaches such a store | `rc2026_loop_guards_are_stricter`, `ss_paper_loop`, `odd_store_reachable` |
+| **The printed loop guards are stricter than ours.** They test equality with `t` and `f`; since the data domain is all binary trees over `nil`, a variable can hold a value that is neither, and there the printed rules are stuck. A two-line well-formed program reaches such a store | `rc2026_loop_guards_are_stricter`, `ss_paper_loop`, `odd_store_wf`, `odd_store_reachable` |
 | **The structural congruence is not quotiented away but recovered.** Every member of a congruence class stays a distinct `cont_cmd`; the three equations of Eq. (7) are oriented as `S_Seq_Enter`/`S_Seq_Mid`/`S_Seq_Exit`, and the congruence is exactly their equivalence closure. It only moves the token, so it preserves the program and well-formedness | `cong_iff_admin`, `admin_step_is_ss`, `cc_cong_erase`, `cc_cong_preserves_wf` |
 | Forward determinism of ss (Lemma 1, forward) | `ss_step_deterministic` / `rev_com_forward` |
 | Backward determinism of ss, modulo well-formedness (Lemma 1, backward) | `ss_bwd_deterministic` / `rev_com_backward` |
@@ -119,7 +119,7 @@ rest of it is; its size is not the price of those theorems.
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and witness 2 | Fig. 11a | `gap_witness2_paper_fss_moves` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the three facts in one statement | Theorem 1 | `rc2026_printed_fss_moves_where_ss_is_stuck` |
 | the printed loop guards are stricter | `Loop_ss` | `rc2026_loop_guards_are_stricter` |
-| &nbsp;&nbsp;&nbsp;&nbsp;a well-formed program reaches the witness | — | `odd_store_reachable` |
+| &nbsp;&nbsp;&nbsp;&nbsp;a well-formed program reaches the witness | — | `odd_store_wf`, `odd_store_reachable` |
 | which store the printed rules evaluate `E` in | Fig. 9b | (a reading, not a theorem) |
 | &nbsp;&nbsp;&nbsp;&nbsp;the two readings agree on well-formed assignments | — | `eval_readings_agree_on_wf` |
 | &nbsp;&nbsp;&nbsp;&nbsp;and differ without well-formedness | — | `eval_readings_differ_without_wf` |
