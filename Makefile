@@ -1,6 +1,6 @@
 ROCQ ?= rocq
 
-.PHONY: all check audit correspondence extract extract-test clean
+.PHONY: all check audit correspondence extract extract-test janus janus-check janus-audit clean
 
 all: proofs.vo
 
@@ -35,6 +35,21 @@ extract-test: extract test_interp.ml
 	ocamlc -w -a rcore_interp.mli rcore_interp.ml test_interp.ml -o test_interp
 	./test_interp
 
+# Janus extension (janus/janus.v): a control-token small-step semantics
+# for a Janus core, with the same determinism / reversibility package.
+# Kept out of [all] so the default target stays proofs.vo alone.
+janus: janus/janus.vo
+
+janus/janus.vo: janus/janus.v
+	$(ROCQ) c -Q . RCore janus/janus.v
+
+janus-check: janus/janus.vo
+	$(ROCQ) check -Q . RCore RCore.janus.janus
+
+janus-audit:
+	SRC=janus/janus.v ROCQ=$(ROCQ) ./tools/audit.sh
+
 clean:
 	rm -f *.vo *.vos *.vok *.glob .*.aux .lia.cache
+	rm -f janus/*.vo janus/*.vos janus/*.vok janus/*.glob janus/.*.aux
 	rm -f rcore_interp.ml rcore_interp.mli *.cmi *.cmo test_interp

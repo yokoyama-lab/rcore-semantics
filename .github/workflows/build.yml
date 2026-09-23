@@ -34,6 +34,9 @@ jobs:
             startGroup "Paper correspondence -- every rule is accounted for"
               make correspondence
             endGroup
+            startGroup "Janus extension (janus/janus.v): build, kernel check, axiom audit"
+              make janus && make janus-check && make janus-audit
+            endGroup
             startGroup "Extraction -- build and RUN the extracted interpreter"
               make extract-test
             endGroup

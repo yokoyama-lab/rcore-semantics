@@ -271,6 +271,33 @@ assignment-versus-assignment has content. Preservation of
 well-formedness is routine. The difficulty was concentrated in the
 backward direction and in the fss layer.
 
+## Janus extension (janus/)
+
+`janus/janus.v` extends the control-token technique from R-CORE to a Janus
+core (`skip`, `+= -= ^=`, sequence, `if–fi`, `from–do–loop–until`,
+`call`/`uncall`; no arrays, locals, parameters, `/` or `%`). Lanese and
+Vidal (RC 2026, *A Reversible Semantics for Janus*) ask whether the token
+technique scales to Janus; for this fragment the answer is yes: the 27-rule
+relation `jstep Γ` is deterministic in both directions under
+well-formedness, and the syntactic inverter reverses every step. The file
+is self-contained (it does not import `proofs.v`), axiom-free, and audited
+by the same script (36 results).
+
+| Result | Identifier in `janus/janus.v` |
+|---|---|
+| Forward determinism (no hypothesis) | `jstep_deterministic` |
+| Backward determinism from a single well-formed target | `jstep_bwd_deterministic_tgt` |
+| Well-formedness is invariant under steps (both directions) | `wf_cs_step_preserved`, `wf_cs_step_reflected` |
+| A forward step of `s` is a backward step of `inv s` at the mirrored token position | `inv_step_reverses`, `bstep_is_fwd_of_inv` |
+| The transition relation is executable | `step_fun_correct` |
+
+The rule table with the per-rule injectivity argument is
+[`janus/RULES.md`](janus/RULES.md); the comparison with the PC-based
+semantics of Lanese and Vidal is
+[`janus/LANESE_VIDAL.md`](janus/LANESE_VIDAL.md); build and resume notes
+are in [`janus/README.md`](janus/README.md). Build with `make janus`,
+`make janus-check`, `make janus-audit` (kept out of `make all`).
+
 ## Build
 
 Requires Rocq (Coq Prover) 9.0 or later; tested with 9.1.1, which is
@@ -293,6 +320,9 @@ make audit          # enforce the axiom-free claim (see below)
 make correspondence # enforce the paper-to-artifact rule diff
 make extract        # extract a verified OCaml interpreter
 make extract-test   # build and RUN the extracted interpreter
+make janus          # build the Janus extension (janus/janus.v)
+make janus-check    # kernel re-validation of the Janus extension
+make janus-audit    # axiom audit of the Janus extension
 make clean
 ```
 
