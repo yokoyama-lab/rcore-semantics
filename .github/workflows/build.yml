@@ -17,6 +17,20 @@ jobs:
       - uses: coq-community/docker-coq-action@v1
         with:
           custom_image: ${{ matrix.image }}
+          # The image ships rocq-prover 9.1.1, its Stdlib and OCaml, which
+          # is everything the proofs and the extraction need; the opam file
+          # only documents that pin.  So the action's default install step
+          # (opam pin + opam install --deps-only, which asks opam for the
+          # rocq-prover meta-package) and its uninstall step are replaced by
+          # no-ops: the build is `make`, not `opam install`.
+          install: |
+            startGroup "Toolchain shipped by the image (no opam install needed)"
+              rocq --version
+              ocamlc -version
+            endGroup
+          uninstall: |
+            startGroup "Nothing to uninstall"
+            endGroup
           before_script: |
             startGroup "Workaround permission issue"
               sudo chown -R 1000:1000 .
