@@ -1,0 +1,36 @@
+diff --git a/src/RCore/Ast.hs b/src/RCore/Ast.hs
+index 4a98448..7606524 100644
+--- a/src/RCore/Ast.hs
++++ b/src/RCore/Ast.hs
+@@ -4,6 +4,7 @@ Module      : RCore.Ast
+ module RCore.Ast where
+ 
+ import RCore.Val
++import Prelude hiding ((<>))
+ import Text.PrettyPrint
+ 
+ {-|
+diff --git a/src/RCore/Eval.hs b/src/RCore/Eval.hs
+index 9afb63b..543b0ad 100644
+--- a/src/RCore/Eval.hs
++++ b/src/RCore/Eval.hs
+@@ -4,6 +4,7 @@ Module      : RCore.Eval
+ module RCore.Eval where
+ import RCore.Ast
+ import Data.Maybe (fromMaybe)
++import Prelude hiding ((<>))
+ import Text.PrettyPrint
+ import RCore.Val
+ 
+diff --git a/src/RCore/ToData.hs b/src/RCore/ToData.hs
+index 3156452..dba98b9 100644
+--- a/src/RCore/ToData.hs
++++ b/src/RCore/ToData.hs
+@@ -5,6 +5,7 @@ module RCore.ToData where
+ 
+ import RCore.Val
+ import RCore.Ast
++import Prelude hiding ((<>))
+ import Text.PrettyPrint
+ 
+ import Debug.Trace

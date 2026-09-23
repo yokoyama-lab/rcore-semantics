@@ -1,0 +1,26 @@
+(* May 22, 2015 *)
+read X1;  (* reverse a given list *)
+  X5 ^= cons X0 X0;
+  X6 ^= =? X1 X0;
+  from X5 loop
+    X6 ^= =? X1 X0;
+    X5 ^= =? X2 X0;
+
+    X3 ^= hd X1;   (* cons X3 X1 <= X1 *)
+    X4 ^= tl X1;
+    X1 ^= cons X3 X4;
+    X1 ^= X4;
+    X4 ^= X1;
+
+    X4 ^= cons X3 X2; (* X2 <= cons X3 X2 *)
+    X3 ^= hd X4;
+    X2 ^= tl X4;
+    X2 ^= X4;
+    X4 ^= X2;
+
+    X5 ^= =? X2 X0;
+    X6 ^= =? X1 X0
+  until X6;
+  X5 ^= =? X2 X0;
+  X6 ^= cons X0 X0;
+write X2

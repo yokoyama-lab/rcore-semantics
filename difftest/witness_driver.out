@@ -1,0 +1,92 @@
+rocq c -Q . RCore extraction.v
+File "./extraction.v", line 47, characters 0-100:
+Warning: Setting extraction output directory by default to
+"/home/claude/rcore-semantics". Use "Set Extraction Output Directory" or
+command line option "-output-directory" to set a different directory for
+extracted files to appear in.
+[extraction-default-directory,extraction,default]
+ocamlc -w -a -I . rcore_interp.mli rcore_interp.ml difftest/witness_driver.ml -o witness_driver
+./witness_driver
+== gap_witness: X0 ^= nil at nil_store
+    initial store {}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {}
+    step_fun*     (exec_ss): terminal, {}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+    step_fun_on_gap_witness (l.4801) reproduced          ok
+== gap_witness2: X0 ^= =? X1 X2 at neq_store
+    initial store {X2=(nil.nil)}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {X2=(nil.nil)}
+    step_fun*     (exec_ss): terminal, {X2=(nil.nil)}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== odd_store_reachable: X1 ^= =? X2 X3; X0 ^= cons X1 X4
+    initial store {}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {X0=((nil.nil).nil) X1=(nil.nil)}
+    step_fun*     (exec_ss): terminal, {X0=((nil.nil).nil) X1=(nil.nil)}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== odd loop: from X0 loop X5 ^= nil until X1 at odd_store
+    initial store {X0=((nil.nil).nil) X1=(nil.nil)}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {X0=((nil.nil).nil) X1=(nil.nil)}
+    step_fun*     (exec_ss): terminal, {X0=((nil.nil).nil) X1=(nil.nil)}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== odd loop inverted (inv): from X1 loop X5 ^= nil until X0
+    initial store {X0=((nil.nil).nil) X1=(nil.nil)}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {X0=((nil.nil).nil) X1=(nil.nil)}
+    step_fun*     (exec_ss): terminal, {X0=((nil.nil).nil) X1=(nil.nil)}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== control loop_t: same loop at {X0=t, X1=t}
+    initial store {X0=(nil.nil) X1=(nil.nil)}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {X0=(nil.nil) X1=(nil.nil)}
+    step_fun*     (exec_ss): terminal, {X0=(nil.nil) X1=(nil.nil)}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== selfassign (not wf): X0 ^= X0 at {X0=t}
+    initial store {X0=(nil.nil)}
+    wf_cmd_dec  : false
+    eval_cmd_fuel (exec_ds): {}
+    step_fun*     (exec_ss): terminal, {}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== selfassign_inv: X0 ^= X0 at nil_store does not restore t
+    initial store {}
+    wf_cmd_dec  : false
+    eval_cmd_fuel (exec_ds): {}
+    step_fun*     (exec_ss): terminal, {}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+== mismatchclear: X0 ^= nil at {X0=t}
+    initial store {X0=(nil.nil)}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): undefined
+    step_fun*     (exec_ss): STUCK (step_fun = None) in {X0=(nil.nil)}
+    wf_cmd_dec as expected                               ok
+    exec_ds undefined                                    ok
+    exec_ss stuck                                        ok
+== control reverse.rcore on (nil.((nil.nil).nil))
+    initial store {X1=(nil.((nil.nil).nil))}
+    wf_cmd_dec  : true
+    eval_cmd_fuel (exec_ds): {X2=((nil.nil).(nil.nil))}
+    step_fun*     (exec_ss): terminal, {X2=((nil.nil).(nil.nil))}
+    wf_cmd_dec as expected                               ok
+    exec_ds defined with the expected store              ok
+    exec_ss reaches the terminal configuration with it   ok
+
+all witness checks passed

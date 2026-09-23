@@ -1,0 +1,8 @@
+read X2;
+(* Inverse of gapwitness2.rcore (commands reversed; assignments are their
+   own inverses).  Input (nil.nil), the forward output, goes to X2.
+   X0 ^= =? X1 X2 with X1 = nil <> X2 = t gives nil into X0 = nil (the
+   gap again); X2 ^= =? X3 X4 clears X2; output X9 = nil. *)
+  X0 ^= =? X1 X2;
+  X2 ^= =? X3 X4;
+write X9

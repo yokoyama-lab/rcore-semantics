@@ -1,0 +1,9 @@
+read X9;
+(* Control for oddloop.rcore: identical except that X0 = t = (nil.nil)
+   exactly, so the printed and the repaired loop guards agree.
+   Expected output everywhere: (nil.nil). *)
+  X1 ^= =? X2 X3;
+  X0 ^= =? X2 X3;
+  from X0 loop X5 ^= nil until X1;
+  X1 ^= =? X2 X3;
+write X0

@@ -1,0 +1,10 @@
+read X9;
+(* gap_witness2 (proofs.v l.3786-3800): X0 ^= =? X1 X2 in neq_store.
+   neq_store = nil_store with X2 = (nil.nil); it is built by the first
+   assignment (X3 = X4 = nil, so =? X3 X4 is t).  X1 <> X2, so the
+   right-hand side is nil while X0 is nil: both printed ss assignment
+   rules are blocked, the printed ds and the repaired rules leave the
+   store unchanged.  Expected output: (nil.nil) (the value of X2). *)
+  X2 ^= =? X3 X4;
+  X0 ^= =? X1 X2;
+write X2

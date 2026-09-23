@@ -1,0 +1,12 @@
+read X0;
+(* Inverse of oddloop.rcore (commands reversed, loop guards swapped).
+   Input: ((nil.nil).nil), the forward output.
+   Repaired rules: X1 := t; enter (X1 <> nil); exit at once (X0 <> nil);
+   X0 ^= cons X1 X4 clears X0; X1 cleared; output nil.
+   Printed rules: enter (X1 = t) but the exit test X0 = t fails and the
+   iteration test X0 = nil fails too: stuck in mid-loop. *)
+  X1 ^= =? X2 X3;
+  from X1 loop X5 ^= nil until X0;
+  X0 ^= cons X1 X4;
+  X1 ^= =? X2 X3;
+write X9

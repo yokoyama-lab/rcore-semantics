@@ -1,0 +1,9 @@
+read X0;
+(* Inverse of selfassign.rcore, input nil (the forward output).
+   Full-store reading: X0 ^= X0 with X0 = nil sets X0 := nil, so X0 is
+   NOT restored to t; the next assignment makes X0 = t and the program
+   ends with a non-nil variable other than the output.  This is the
+   backward non-determinism that well-formedness excludes. *)
+  X0 ^= X0;
+  X0 ^= =? X1 X2;
+write X9

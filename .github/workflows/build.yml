@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: write   # only for the failure-report comment below
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,11 +21,30 @@ jobs:
       - uses: coq-community/docker-coq-action@v1
         with:
           custom_image: ${{ matrix.image }}
+          # The image ships rocq-prover 9.1.1, its Stdlib and OCaml, which
+          # is everything proofs.v and the extraction need; the opam file
+          # only documents that pin.  So the action's default install step
+          # (opam pin + opam install --deps-only, which asks opam for the
+          # rocq-prover meta-package) and its uninstall step are replaced by
+          # no-ops: the build is `make`, not `opam install`.
+          install: |
+            startGroup "Toolchain shipped by the image (no opam install needed)"
+              rocq --version
+              ocamlc -version
+            endGroup
+          uninstall: |
+            startGroup "Nothing to uninstall"
+            endGroup
           before_script: |
             startGroup "Workaround permission issue"
               sudo chown -R 1000:1000 .
             endGroup
+          # Everything is tee'd into ci-log.txt so that a failure inside the
+          # container can be reported on the PR (see the last step): the
+          # raw Actions log is not reachable from every network.
           script: |
+            set -o pipefail
+            {
             startGroup "Build (rocq c) -- this IS the proof"
               make
             endGroup
@@ -37,6 +60,28 @@ jobs:
             startGroup "Extraction -- build and RUN the extracted interpreter"
               make extract-test
             endGroup
+            startGroup "Gap witnesses -- RUN them through the extracted interpreter"
+              make witness-test
+            endGroup
+            } 2>&1 | tee ci-log.txt
       - name: Revert permissions
         if: ${{ always() }}
         run: sudo chown -R 1001:116 .
+      - name: Report a failure on the pull request
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "CI failed for ${{ github.sha }} (${{ matrix.image }}): [run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo
+            if [ -s ci-log.txt ]; then
+              echo 'Last 60 lines of the build script output:'
+              echo '```'
+              tail -n 60 ci-log.txt
+              echo '```'
+            else
+              echo 'The build script did not start: the failure is in the action'\''s install/setup phase (see the run).'
+            fi
+          } > failure-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file failure-comment.md
