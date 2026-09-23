@@ -1,0 +1,7 @@
+read X9;
+(* gap_witness (proofs.v l.3762-3785): X0 ^= nil in the all-nil store.
+   Reading a nil input into X9 leaves every variable nil (nil_store).
+   Expected under exec_ds/exec_ss and ds_paper: store unchanged, output nil.
+   Under the printed ss rules (ss_paper_asn, Fig. 9b): stuck. *)
+  X0 ^= nil;
+write X0

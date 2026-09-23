@@ -37,6 +37,9 @@ jobs:
             startGroup "Extraction -- build and RUN the extracted interpreter"
               make extract-test
             endGroup
+            startGroup "Gap witnesses -- RUN them through the extracted interpreter"
+              make witness-test
+            endGroup
       - name: Revert permissions
         if: ${{ always() }}
         run: sudo chown -R 1001:116 .

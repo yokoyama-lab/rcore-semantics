@@ -1,0 +1,12 @@
+read X9;
+(* Mismatched clear (constructed here).  After the first assignment
+   X0 = t; then X0 ^= nil has d = t, e = nil, which satisfies neither
+   disjunct of the printed side condition d = nil \/ (d = e /\ d <> nil)
+   (Fig. 2c; ds_paper PD_Asn proofs.v l.4069), and odot t nil = None
+   (l.214).  Every semantics in proofs.v is undefined/stuck here.
+   Expected: ERROR.  rcore-haskell alone accepts it (Eval.hs l.62-63)
+   and prints nil. *)
+  X0 ^= =? X1 X2;
+  X0 ^= nil;
+  X0 ^= =? X1 X2;
+write X9

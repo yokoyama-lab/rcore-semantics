@@ -1,6 +1,6 @@
 ROCQ ?= rocq
 
-.PHONY: all check audit correspondence extract extract-test clean
+.PHONY: all check audit correspondence extract extract-test witness-test clean
 
 all: proofs.vo
 
@@ -35,6 +35,15 @@ extract-test: extract test_interp.ml
 	ocamlc -w -a rcore_interp.mli rcore_interp.ml test_interp.ml -o test_interp
 	./test_interp
 
+# Runs the gap witnesses of Sect. 41A/41B (gap_witness, gap_witness2,
+# odd_store, and the two constructed in difftest/) through the extracted
+# interpreter and checks them against the outcomes proofs.v proves.  This
+# is the executed third column of docs/gap-witness-table.md.
+witness-test: extract difftest/witness_driver.ml
+	ocamlc -w -a -I . rcore_interp.mli rcore_interp.ml difftest/witness_driver.ml -o witness_driver
+	./witness_driver
+
 clean:
 	rm -f *.vo *.vos *.vok *.glob .*.aux .lia.cache
 	rm -f rcore_interp.ml rcore_interp.mli *.cmi *.cmo test_interp
+	rm -f witness_driver difftest/*.cmi difftest/*.cmo
