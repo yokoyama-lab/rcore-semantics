@@ -101,11 +101,12 @@ New here:
 - **Per-rule partial injectivity, mechanized.** The property proved is that each of the 27
   inference rules is a partial injection on well-formed configurations (`RULES.md` §5), not only
   that every step has an inverse step. This is the meta-level reversibility of Makino–Yokoyama,
-  carried to Janus and checked in Rocq; the survey found no prior mechanization of a small-step
-  semantics for a reversible imperative language (rc-survey `docs/forward/core.md` L426–435: the
-  only related mechanization of Janus is Paolini–Piccolo–Roversi's **big-step** semantics with
-  full abstraction in Matita, L329–352).
-- **The from/until split** of the loop token position, which is what makes `cs_inv` an
+  carried to Janus and checked in Rocq. **Correction (2026-09-24):** an earlier version of this
+  bullet said, following rc-survey (`docs/forward/core.md` L426–435), that there was no prior
+  mechanization of a small-step semantics for a reversible imperative language. That is wrong:
+  the public Rocq development of `yokoyama-lab/PyJanus` (`coq/`) already contains two small-step
+  semantics for a Janus-shaped language, see §4a. What is new here is narrower, and §4a states it.
+- **The from/until split**  of the loop token position, which is what makes `cs_inv` an
   involution on token positions and lets `bstep` be computed by the forward relation on the
   inverted program (`RULES.md` §2).
 - **`uncall` as forward execution of the inverse body inside a token semantics**, with
@@ -121,6 +122,40 @@ Not new:
   and in the Janus literature they cite).
 - Irreversible one-step expression evaluation: shared with them (footnote 1).
 - The token representation itself and the shape of the determinism proofs: `proofs.v`.
+
+---
+
+## 4a. Relation to the PyJanus Rocq development (`yokoyama-lab/PyJanus`, `coq/`)
+
+Checked against `PyJanus` HEAD `9d30e2f` (2026-09-05). Its language (`RevCore.v`, `RevLang`) has
+the same statement forms as ours (`Skip`, primitive, `Seq`, `If g1 s1 s2 g2`,
+`Loop g1 s1 s2 g2`, `Call p`, `Uncall p`, no parameters, no locals), but over **abstract**
+primitives: a module type `REV_PRIM` whose `pstep` is *assumed* deterministic and reversible
+(`pstep_det`, `pstep_rev`, `RevCore.v` L37–47). Two of its files are small-step semantics:
+
+| | `RevSmallStep.v` | `RevLoopLemma.v` | `janus/janus.v` (this directory) |
+|---|---|---|---|
+| Configuration | runtime statement `rs` + state (context-based, after Lami–Lanese–Stefani RC 2024) | control stack `list rs` + state + **history** `list ev`, one event per step (after Lanese–Vidal) | `cont_stmt` (whole program, one token) + store; **no history** |
+| Backward determinism | **refuted**: `step_not_backward_deterministic` (L344), `exit_assertion_collapses` (L358) | yes, no hypothesis: `fstep_backward_det` (L239), via `loop_lemma` (L180) | yes, under `wf_cs` (decidable on the configuration): `jstep_bwd_deterministic`, `bstep_deterministic` |
+| Backward relation | — | `bstep`, defined separately; reads the history | the converse of `jstep`; `bstep_is_fwd_of_inv`: it *is* forward `jstep` on `cs_inv` |
+| Where injectivity of assignment comes from | axiom of the module type (`pstep_rev`) | same | proved for concrete `+= -= ^=` from `x ∉ e` (`asn_step_injective`); `x ^= x` shows `wf_cs` cannot be dropped |
+| Relation to big-step | `equiv` (L320) | `exec_iff_pc` | none yet (`README.md`, next steps) |
+
+So the accurate statement of what `janus/janus.v` adds is:
+
+- a small-step semantics for this Janus core that is backward deterministic **without storing a
+  history** — the configuration size does not grow with the run, unlike `RevLoopLemma.v`, where
+  the history is what restores the information that `RevSmallStep.v` shows is lost;
+- the obstruction exhibited in `RevSmallStep.v` is avoided by representation alone: the
+  sequencing collapse cannot occur because `CS_seq_L`/`CS_seq_R` keep the other component, and the
+  exit-assertion collapse cannot occur because `CS_if_then`/`CS_if_else` keep both guards;
+- the backward relation needs no separate definition: it is the forward relation on the
+  `cs_inv`-image (`bstep_is_fwd_of_inv`);
+- assignment is concrete, so the well-formedness side condition `x ∉ e` is a *proved*
+  hypothesis, not an axiom of an abstract primitive interface.
+
+Not new relative to PyJanus: the language shape, the inverter on statements, the existence of a
+small-step semantics for it, and a Loop Lemma for a Janus-shaped language (history-based).
 
 ---
 
@@ -170,6 +205,11 @@ Not new:
 - Luca Paolini, Mauro Piccolo, Luca Roversi. *A Certified Study of a Reversible Programming
   Language.* TYPES 2015, LIPIcs 69, 7:1–7:21 (2018). doi:10.4230/LIPIcs.TYPES.2015.7
   (Matita, big-step Janus; rc-survey `docs/forward/core.md` L329–352).
+- `yokoyama-lab/PyJanus`, `coq/` (Rocq 9.1; HEAD `9d30e2f`, 2026-09-05):
+  `RevCore.v` (L37–72: `REV_PRIM`, `stmt`, `invert`), `RevSmallStep.v` (L320 `equiv`,
+  L344 `step_not_backward_deterministic`, L358 `exit_assertion_collapses`),
+  `RevLoopLemma.v` (L77 `conf`, L180 `loop_lemma`, L239 `fstep_backward_det`).
+  https://github.com/yokoyama-lab/PyJanus
 - rc-survey files used (clone at `/home/claude/ctoken/rc-survey`, HEAD `9f2b6fa2`):
   - `papers/RC2026/RC2026-09-a-reversible-semantics-for-janus.txt` — extraction; lines cited
     above as (text Lnn). Key anchors: abstract L18–22; Loop Lemma criterion L66–69; extended

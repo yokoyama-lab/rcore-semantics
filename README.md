@@ -283,6 +283,15 @@ well-formedness, and the syntactic inverter reverses every step. The file
 is self-contained (it does not import `proofs.v`), axiom-free, and audited
 by the same script (36 results).
 
+Prior small-step work on the same language shape is in the Rocq
+development of [`yokoyama-lab/PyJanus`](https://github.com/yokoyama-lab/PyJanus)
+(`coq/RevSmallStep.v`, which shows that a context-based small-step
+semantics is not backward deterministic, and `coq/RevLoopLemma.v`, which
+recovers backward determinism by recording a history). What `janus/janus.v`
+adds is backward determinism *without* a history, and the backward relation
+obtained as the forward one on the inverted configuration; see
+[`janus/LANESE_VIDAL.md`](janus/LANESE_VIDAL.md) §4a.
+
 | Result | Identifier in `janus/janus.v` |
 |---|---|
 | Forward determinism (no hypothesis) | `jstep_deterministic` |
