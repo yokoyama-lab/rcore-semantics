@@ -24,7 +24,8 @@ build recipe and runner: `difftest/`.  Stores list non-nil variables only;
 The `step_fun` column: W1 is the proved `Example`; the other cells are
 what `difftest/witness_driver.ml` asserts and were executed against the
 extracted code (`make witness-test`, Rocq 9.1.1 built from source, all
-checks pass; CI runs the same target after `make extract-test`).
+checks pass, transcript in `difftest/witness_driver.out`; CI runs the same
+target after `make extract-test`).
 
 **Interpretation.**  On the assignment gap (W1, W2) both older
 interpreters take the side of the repaired rule: each implements the

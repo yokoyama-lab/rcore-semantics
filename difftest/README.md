@@ -105,5 +105,5 @@ make witness-test        # = make extract; ocamlc ... difftest/witness_driver.ml
 CI runs it after `make extract-test` (`.github/workflows/build.yml`).
 It was also executed here against the real extraction with Rocq 9.1.1
 built from source (`rocq c` 23 s for proofs.v; `make check`, `make audit`,
-`make correspondence`, `make extract-test` and `make witness-test` all pass;
-transcript in the table's notes).
+`make correspondence`, `make extract-test` and `make witness-test` all pass);
+the executed transcript is `witness_driver.out`.
