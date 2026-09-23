@@ -1,0 +1,15 @@
+read X9;
+(* odd_store (proofs.v l.3851-3885): after the first two assignments
+   (odd_store_reachable, l.3860) X1 = (nil.nil) = t and
+   X0 = ((nil.nil).nil), which is neither t nor nil.
+   The loop is the one of rc2026_loop_guards_are_stricter (l.3877-3885).
+   Repaired guards (X0 <> nil to enter, X1 <> nil to exit): the loop is
+   entered and left at once, store unchanged; the final assignment
+   clears X1 so the program is well-behaved and prints X0.
+   Printed guards (X0 = t to enter): stuck at loop entry.
+   Expected output under the repaired rules: ((nil.nil).nil). *)
+  X1 ^= =? X2 X3;
+  X0 ^= cons X1 X4;
+  from X0 loop X5 ^= nil until X1;
+  X1 ^= =? X2 X3;
+write X0

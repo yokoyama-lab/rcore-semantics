@@ -1,0 +1,14 @@
+read X9;
+(* Store-reading witness (constructed here; the expression-level fact is
+   eval_readings_differ_without_wf, proofs.v l.4213-4222).
+   X0 ^= X0 is NOT well-formed (nf_expr_not_self l.409, wf_cc_dec_rejects
+   l.4380), so on well-formed programs the two readings of the store
+   cannot be told apart (eval_readings_agree_on_wf l.4207).
+   With X0 = t:
+     E read in the full store (eval_expr l.202, EvalRcore.ml l.86):
+       e = t = d, so X0 is cleared; output nil.
+     E read in s minus X0 (the paper's s + {X -> d}; Eval.hs l.52):
+       X0 is not in scope; undefined. *)
+  X0 ^= =? X1 X2;
+  X0 ^= X0;
+write X0
