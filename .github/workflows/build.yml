@@ -22,7 +22,7 @@ jobs:
         with:
           custom_image: ${{ matrix.image }}
           # The image ships rocq-prover 9.1.1, its Stdlib and OCaml, which
-          # is everything proofs.v and the extraction need; the opam file
+          # is everything the proofs and the extraction need; the opam file
           # only documents that pin.  So the action's default install step
           # (opam pin + opam install --deps-only, which asks opam for the
           # rocq-prover meta-package) and its uninstall step are replaced by
@@ -56,6 +56,9 @@ jobs:
             endGroup
             startGroup "Paper correspondence -- every rule is accounted for"
               make correspondence
+            endGroup
+            startGroup "Janus extension (janus/janus.v): build, kernel check, axiom audit"
+              make janus && make janus-check && make janus-audit
             endGroup
             startGroup "Extraction -- build and RUN the extracted interpreter"
               make extract-test

@@ -7,16 +7,17 @@
 # script closes both gaps, so "the development is axiom-free" is checked
 # by CI rather than promised by a human.
 #
-# Usage: tools/audit.sh            (from the repository root)
+# Usage: tools/audit.sh                        (from the repository root)
+#        SRC=janus/janus.v tools/audit.sh      (audit another file)
 #
 # Checks:
-#   1. no Admitted / Axiom / Parameter / Conjecture in proofs.v
+#   1. no Admitted / Axiom / Parameter / Conjecture in $SRC (default proofs.v)
 #   2. every top-level Theorem/Lemma/Corollary/Example is audited
 #   3. the build prints nothing but "Closed under the global context"
 
 set -eu
 
-SRC=proofs.v
+SRC=${SRC:-proofs.v}
 ROCQ=${ROCQ:-rocq}
 status=0
 
@@ -48,7 +49,7 @@ fi
 
 echo "== 3. every audited result is closed under the global context =="
 out=$(mktemp); trap 'rm -f "$declared" "$audited" "$missing" "$out"' EXIT
-rm -f proofs.vo
+rm -f "${SRC%.v}.vo"
 $ROCQ c -Q . RCore "$SRC" 2>/dev/null > "$out"
 # Every line of stdout comes from Print Assumptions.  Any line other than
 # the closed-world verdict means something depends on an assumption.
