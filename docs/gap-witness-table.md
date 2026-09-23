@@ -22,11 +22,9 @@ build recipe and runner: `difftest/`.  Stores list non-nil variables only;
 | control `reverse.rcore` (both repos' example) on `('1.('2.('3.nil)))`, `('a.('b.('c.nil)))`, `(nil.((nil.nil).nil))` | n/a (atoms) | `[t, nil]` on the nil-tree list | `('3.('2.('1.nil)))`, parse error on the OCaml file's leading comment, `((nil.nil).(nil.nil))` | `('3 . ('2 . ('1 . nil)))`, `('c . ('b . ('a . nil)))`, `((nil . nil) . (nil . nil))` | `{X2=((nil.nil).(nil.nil))}` |
 
 The `step_fun` column: W1 is the proved `Example`; the other cells are
-hand-evaluations of `step_fun` (l.4514-4558) and are what
-`difftest/witness_driver.ml` asserts.  Rocq 9.1.1 could not be installed in
-the container, so the driver was compiled and run only against a
-hand-written stub of the extracted interface (all checks pass there); the
-CI step `make witness-test` executes it against the extracted code.
+what `difftest/witness_driver.ml` asserts and were executed against the
+extracted code (`make witness-test`, Rocq 9.1.1 built from source, all
+checks pass; CI runs the same target after `make extract-test`).
 
 **Interpretation.**  On the assignment gap (W1, W2) both older
 interpreters take the side of the repaired rule: each implements the
@@ -72,5 +70,4 @@ well-formed assignments of `odd_store_reachable` (l.3860), and each witness
 clears its scaffolding before `write`, so the outputs are those of whole
 programs, not of the single command.  `rcore-C-ocaml` allows arbitrary
 expressions as loop guards, so its W3⁻¹ failure surfaces as the body-side
-`assert` (l.104) rather than as a stuck exit test.  The `step_fun` column
-was not executed against the extracted code in this container (see above).
+`assert` (l.104) rather than as a stuck exit test.

@@ -103,8 +103,7 @@ make witness-test        # = make extract; ocamlc ... difftest/witness_driver.ml
 ```
 
 CI runs it after `make extract-test` (`.github/workflows/build.yml`).
-Rocq 9.1.1 could not be installed in the container this table was made
-in (Docker Hub's blob CDN, opam.ocaml.org and GitHub tarballs are blocked
-by the egress proxy), so the driver was type-checked and run only against
-a hand-written stub of the extracted interface; the CI step is what
-executes it against the extracted code.  See the table's notes.
+It was also executed here against the real extraction with Rocq 9.1.1
+built from source (`rocq c` 23 s for proofs.v; `make check`, `make audit`,
+`make correspondence`, `make extract-test` and `make witness-test` all pass;
+transcript in the table's notes).
