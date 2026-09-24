@@ -275,13 +275,14 @@ backward direction and in the fss layer.
 
 `janus/janus.v` extends the control-token technique from R-CORE to a Janus
 core (`skip`, `+= -= ^=`, sequence, `if–fi`, `from–do–loop–until`,
-`call`/`uncall`; no arrays, locals, parameters, `/` or `%`). Lanese and
+`call`/`uncall` with call-by-reference parameters; no arrays, locals, `/`
+or `%`). Lanese and
 Vidal (RC 2026, *A Reversible Semantics for Janus*) ask whether the token
 technique scales to Janus; for this fragment the answer is yes: the 27-rule
 relation `jstep Γ` is deterministic in both directions under
 well-formedness, and the syntactic inverter reverses every step. The file
 is self-contained (it does not import `proofs.v`), axiom-free, and audited
-by the same script (36 results).
+by the same script (56 results).
 
 Prior small-step work on the same language shape is in the Rocq
 development of [`yokoyama-lab/PyJanus`](https://github.com/yokoyama-lab/PyJanus)
