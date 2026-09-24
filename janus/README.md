@@ -3,8 +3,8 @@
 A control-token small-step semantics (`jstep Γ`) for a Janus core — `skip`, `+= -= ^=`,
 sequence, `if–fi`, `from–do–loop–until`, `call`/`uncall` with call-by-reference parameters
 against a procedure environment — extending the R-CORE semantics of `../proofs.v` to the fragment
-of Lanese–Vidal (RC 2026) without arrays, `local`/`delocal`, `/` and `%`, plus parameters (which
-Lanese–Vidal do not treat). Self-contained: it does
+of Lanese–Vidal (RC 2026) without arrays, `/` and `%`, plus parameters and `local`/`delocal`
+blocks (which Lanese–Vidal do not treat). Self-contained: it does
 not import `proofs.v`, but mirrors its proof architecture section by section.
 
 ## Build (from the repository root)
@@ -15,8 +15,8 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
 
 ## Files
 
-- `janus.v` — syntax, `jstep Γ` (27 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (56 results, axiom-free, Rocq 9.1.1).
-- `RULES.md` — the 27-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
+- `janus.v` — syntax, `jstep Γ` (30 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (67 results, axiom-free, Rocq 9.1.1).
+- `RULES.md` — the 30-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
 ## Headline theorems
@@ -26,16 +26,18 @@ Parameters: `wf_inst` (an accepted call instantiates a well-formed body), `inst_
 (conservative extension), `j_call_by_reference`, `j_uncall_undoes_call`,
 `j_alias_actuals_stuck`, `j_alias_global_stuck`, `alias_breaks_wf`.
 
-Excluded for now: arrays, `local`/`delocal`, `/` and `%`.
+Locals: `local_enter_injective`, `local_exit_injective`, `j_local_shadows`, `j_local_inverse`,
+`j_delocal_mismatch_stuck`, `local_bwd_needs_nf` (why `x ∉ e2` is required).
+
+Excluded for now: arrays, `/` and `%`.
 
 ## Resume notes
 
 Next steps, in priority order (details in `RULES.md` §7):
 
-1. `local x = e … delocal x = e`: a second data-carrying rule pair; delocal is a value assertion.
-   With parameters in place, locals are what makes procedures modular (a body can then have
-   private variables instead of relying on globals).
-2. Arrays (`x[e1] op= e2`): indexed store, well-formedness on both `e1` and `e2`.
+1. Arrays (`x[e1] op= e2`): indexed store, well-formedness on both `e1` and `e2`.
+2. Refine `call_ok` to ignore variables bound by an enclosing `local` in the body (currently a
+   body-local name counts as a global, which is conservative: it rejects some harmless calls).
 3. `bstep_fun` (via `bstep_is_fwd_of_inv`) and extraction of `step_fun` into `../extraction.v`.
 4. The R-CORE→Janus embedding as a formal theorem (`RULES.md` §4, §7 item 6).
 5. A CFG/fss layer and a formal, rule-by-rule comparison with Lanese–Vidal once the paper's
