@@ -3,8 +3,8 @@
 A control-token small-step semantics (`jstep Γ`) for a Janus core — `skip`, `+= -= ^=`,
 sequence, `if–fi`, `from–do–loop–until`, `call`/`uncall` with call-by-reference parameters
 against a procedure environment — extending the R-CORE semantics of `../proofs.v` to the fragment
-of Lanese–Vidal (RC 2026) without arrays, `/` and `%`, plus parameters and `local`/`delocal`
-blocks (which Lanese–Vidal do not treat). Self-contained: it does
+of Lanese–Vidal (RC 2026) with arrays and without `/` and `%`, plus parameters and
+`local`/`delocal` blocks (which Lanese–Vidal do not treat). Self-contained: it does
 not import `proofs.v`, but mirrors its proof architecture section by section.
 
 ## Build (from the repository root)
@@ -15,8 +15,8 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
 
 ## Files
 
-- `janus.v` — syntax, `jstep Γ` (30 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (67 results, axiom-free, Rocq 9.1.1).
-- `RULES.md` — the 30-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
+- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (80 results, axiom-free, Rocq 9.1.1).
+- `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
 ## Headline theorems
@@ -29,13 +29,17 @@ Parameters: `wf_inst` (an accepted call instantiates a well-formed body), `inst_
 Locals: `local_enter_injective`, `local_exit_injective`, `j_local_shadows`, `j_local_inverse`,
 `j_delocal_mismatch_stuck`, `local_bwd_needs_nf` (why `x ∉ e2` is required).
 
-Excluded for now: arrays, `/` and `%`.
+Arrays: `aasn_step_injective`, `j_array_run`, `j_array_inverse`, `j_array_out_of_bounds_stuck`,
+`aasn_bwd_needs_anf` (why `a ∉ e2` is required). Out-of-bounds reads in expressions yield 0
+(documented deviation, `RULES.md` §1).
+
+Excluded for now: `/` and `%` (and, with them, partial expression evaluation).
 
 ## Resume notes
 
 Next steps, in priority order (details in `RULES.md` §7):
 
-1. Arrays (`x[e1] op= e2`): indexed store, well-formedness on both `e1` and `e2`.
+1. Partial `eval` (`/`, `%`, out-of-bounds reads as errors): `eval : store -> expr -> option Z`.
 2. Refine `call_ok` to ignore variables bound by an enclosing `local` in the body (currently a
    body-local name counts as a global, which is conservative: it rejects some harmless calls).
 3. `bstep_fun` (via `bstep_is_fwd_of_inv`) and extraction of `step_fun` into `../extraction.v`.

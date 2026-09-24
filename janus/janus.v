@@ -16,6 +16,7 @@
       call p(ys) / uncall p(ys)   with call-by-reference parameters,
                           against a procedure environment Gamma,
       local x = e1; s; delocal x = e2,
+      a[e1] op= e2 on global arrays,
 
   and the same package of theorems is re-established, axiom-free:
 
@@ -30,15 +31,16 @@
                                      [bstep_is_fwd_of_inv]
       executable semantics           [step_fun_correct]
 
-  Scope.  This is Janus WITHOUT arrays and without the division-like
-  operators / and % (whose partiality is orthogonal to the
-  control-token question).  Procedures take call-by-reference parameters
+  Scope.  This is Janus with arrays (a[e1] op= e2, four global arrays of
+  fixed length) and WITHOUT the division-like operators / and % (whose
+  partiality is orthogonal to the control-token question); an
+  out-of-bounds array read in an expression yields 0.  Procedures take call-by-reference parameters
   (section 3a); the no-aliasing rule is the decidable side condition
   [call_ok] of the call/uncall rules.  [local x = e1; s; delocal x = e2]
   blocks shadow x; the frame [CS_local] saves the outer value.  Values
   are unbounded integers (Z).  All expression evaluation is therefore
   total, and the only partiality of the semantics is in the loop guards,
-  the call side condition and the delocal assertion.
+  the call side condition, the delocal assertion and array bounds.
 
   Design.  R-CORE's [from x loop c until y] is the Janus loop
   [from x do skip loop c until y].  R-CORE needs a single "mid-loop" token
@@ -84,17 +86,54 @@ Definition X7 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fi
 Definition X8 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))))).
 Definition X9 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))))).
 
-(* Stores: a total map from the ten variables to integers. *)
-Definition store := Vector.t Z 10.
+(* Arrays: four global arrays A0..A3 of fixed length [asize]. *)
+Definition asize : nat := 8.
+Definition arr := Fin.t 4.
+Definition A0 : arr := Fin.F1.
+Definition A1 : arr := Fin.FS Fin.F1.
+Definition A2 : arr := Fin.FS (Fin.FS Fin.F1).
+Definition A3 : arr := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
 
-Definition lookup (s : store) : var -> Z := Vector.nth (n:=10) s.
+(* Stores: the ten scalar variables and the four arrays, both as vectors,
+   so that store equality stays extensional without an axiom. *)
+Record store : Type := mkstore {
+  sv : Vector.t Z 10;
+  sa : Vector.t (Vector.t Z asize) 4
+}.
+
+Definition lookup (s : store) : var -> Z := Vector.nth (sv s).
 Coercion lookup : store >-> Funclass.
 
 Definition update (s : store) (x : var) (v : Z) : store :=
-  Vector.replace s x v.
+  mkstore (Vector.replace (sv s) x v) (sa s).
+
+Definition aget (s : store) (a : arr) (i : Fin.t asize) : Z :=
+  Vector.nth (Vector.nth (sa s) a) i.
+
+Definition aupdate (s : store) (a : arr) (i : Fin.t asize) (v : Z) : store :=
+  mkstore (sv s) (Vector.replace (sa s) a (Vector.replace (Vector.nth (sa s) a) i v)).
+
+Fixpoint fin_of_nat (k n : nat) : option (Fin.t n) :=
+  match n with
+  | O => None
+  | S n' => match k with
+            | O => Some Fin.F1
+            | S k' => option_map Fin.FS (fin_of_nat k' n')
+            end
+  end.
 
 
 Local Open Scope Z_scope.
+
+(* An integer index, if it is in bounds. *)
+Definition idx (z : Z) : option (Fin.t asize) :=
+  if Z.ltb z 0 then None else fin_of_nat (Z.to_nat z) asize.
+
+(* Array read in an expression.  Kept total: an out-of-bounds read yields
+   0 (a deviation from Janus, where it is an error; out-of-bounds UPDATES
+   are stuck, see J_AAsn). *)
+Definition aread (s : store) (a : arr) (z : Z) : Z :=
+  match idx z with Some i => aget s a i | None => 0 end.
 
 (* Binary operators.  Band/Bor are bitwise; Bland/Blor are logical and the
    comparisons return 1 or 0.  Truth is "nonzero". *)
@@ -105,7 +144,8 @@ Inductive binop : Type :=
 Inductive expr : Type :=
   | Econst (z : Z)
   | Evar   (x : var)
-  | Ebin   (op : binop) (e1 e2 : expr).
+  | Ebin   (op : binop) (e1 e2 : expr)
+  | Eidx   (a : arr) (e : expr).                 (* a[e] *)
 
 (* Reversible update operators  x op= e. *)
 Inductive updop : Type := Uadd | Usub | Uxor.
@@ -136,8 +176,10 @@ Inductive stmt : Type :=
   | Sloop   (e1 : expr) (s1 s2 : stmt) (e2 : expr)
   | Scall   (p : pid) (args : list var)
   | Suncall (p : pid) (args : list var)
-  | Slocal  (x : var) (e1 : expr) (s : stmt) (e2 : expr).
+  | Slocal  (x : var) (e1 : expr) (s : stmt) (e2 : expr)
       (* local x = e1;  s;  delocal x = e2 *)
+  | Saass   (a : arr) (e1 : expr) (op : updop) (e2 : expr).
+      (* a[e1] op= e2 *)
 
 (* A procedure: its formal parameters and its body.  Parameters are passed
    by reference: [call p ys] runs the body with each formal renamed to the
@@ -179,6 +221,7 @@ Fixpoint eval (s : store) (e : expr) : Z :=
   | Econst z      => z
   | Evar x        => s x
   | Ebin op e1 e2 => apply_bin op (eval s e1) (eval s e2)
+  | Eidx a e      => aread s a (eval s e)
   end.
 
 (* ================================================================= *)
@@ -195,6 +238,7 @@ Fixpoint inv (st : stmt) : stmt :=
   | Scall p ys        => Suncall p ys
   | Suncall p ys      => Scall p ys
   | Slocal x e1 a e2  => Slocal x e2 (inv a) e1
+  | Saass a e1 op e2  => Saass a e1 (inv_upd op) e2
   end.
 
 (* ================================================================= *)
@@ -213,6 +257,7 @@ Fixpoint rename_expr (ρ : var -> var) (e : expr) : expr :=
   | Econst z      => Econst z
   | Evar x        => Evar (ρ x)
   | Ebin op e1 e2 => Ebin op (rename_expr ρ e1) (rename_expr ρ e2)
+  | Eidx a e      => Eidx a (rename_expr ρ e)
   end.
 
 Fixpoint rename (ρ : var -> var) (st : stmt) : stmt :=
@@ -225,6 +270,7 @@ Fixpoint rename (ρ : var -> var) (st : stmt) : stmt :=
   | Scall p ys      => Scall p (List.map ρ ys)
   | Suncall p ys    => Suncall p (List.map ρ ys)
   | Slocal x e1 a e2 => Slocal (ρ x) (rename_expr ρ e1) (rename ρ a) (rename_expr ρ e2)
+  | Saass a e1 op e2 => Saass a (rename_expr ρ e1) op (rename_expr ρ e2)
   end.
 
 (* The body that [call p ys] runs. *)
@@ -237,6 +283,7 @@ Fixpoint vars_expr (e : expr) : list var :=
   | Econst _      => List.nil
   | Evar x        => List.cons x List.nil
   | Ebin _ e1 e2  => vars_expr e1 +++ vars_expr e2
+  | Eidx _ e      => vars_expr e
   end.
 
 Fixpoint vars (st : stmt) : list var :=
@@ -249,6 +296,7 @@ Fixpoint vars (st : stmt) : list var :=
   | Scall _ ys      => ys
   | Suncall _ ys    => ys
   | Slocal x e1 a e2 => x :: vars_expr e1 +++ vars a +++ vars_expr e2
+  | Saass _ e1 _ e2  => vars_expr e1 +++ vars_expr e2
   end.
 
 Definition var_eqb (u w : var) : bool := if Fin.eq_dec u w then true else false.
@@ -398,7 +446,13 @@ Inductive jstep (Γ : penv) : cont_stmt * store -> cont_stmt * store -> Prop :=
               (CS_post (Slocal x e1 st e2), update s x v)
   | J_Ctx_Local : forall x v e1 cs cs' e2 s s',
       jstep Γ (cs, s) (cs', s') ->
-      jstep Γ (CS_local x v e1 cs e2, s) (CS_local x v e1 cs' e2, s').
+      jstep Γ (CS_local x v e1 cs e2, s) (CS_local x v e1 cs' e2, s')
+  (* Array update: stuck when the index is out of bounds. *)
+  | J_AAsn : forall a e1 op e2 s i,
+      idx (eval s e1) = Some i ->
+      jstep Γ (CS_pre (Saass a e1 op e2), s)
+              (CS_post (Saass a e1 op e2),
+               aupdate s a i (apply_upd op (aget s a i) (eval s e2))).
 
 (* Backward step: the converse relation. *)
 Definition bstep (Γ : penv) (cfg1 cfg2 : cont_stmt * store) : Prop :=
@@ -409,20 +463,29 @@ Definition bstep (Γ : penv) (cfg1 cfg2 : cont_stmt * store) : Prop :=
 (* ================================================================= *)
 
 Lemma update_eq : forall s x v, update s x v x = v.
-Proof. intros. unfold update, lookup. apply nth_replace_eq. Qed.
+Proof. intros. unfold update, lookup; simpl. apply nth_replace_eq. Qed.
 
 Lemma update_neq : forall s x y v, x <> y -> update s x v y = s y.
 Proof.
-  intros s x y v Hxy. unfold update, lookup.
+  intros s x y v Hxy. unfold update, lookup; simpl.
   apply nth_replace_neq. auto.
 Qed.
 
 (* Pointwise => Leibniz equality on stores, constructively, from
    [Vector.eq_nth_iff]: no functional extensionality. *)
-Lemma store_ext : forall s1 s2 : store, (forall y, s1 y = s2 y) -> s1 = s2.
+Lemma vec_ext :
+  forall (A : Type) n (v w : Vector.t A n), (forall i, Vector.nth v i = Vector.nth w i) -> v = w.
+Proof. intros A n v w H. apply eq_nth_iff. intros p1 p2 ->. apply H. Qed.
+
+Lemma store_ext :
+  forall s1 s2 : store, (forall y, s1 y = s2 y) -> sa s1 = sa s2 -> s1 = s2.
 Proof.
-  intros s1 s2 H. apply eq_nth_iff. intros p1 p2 ->. apply H.
+  intros [v1 a1] [v2 a2] H Ha; simpl in Ha; subst; f_equal.
+  apply vec_ext; intro i. exact (H i).
 Qed.
+
+Lemma update_sa : forall s1 s2 x v1 v2, update s1 x v1 = update s2 x v2 -> sa s1 = sa s2.
+Proof. intros s1 s2 x v1 v2 H. exact (f_equal sa H). Qed.
 
 Lemma update_injective_off_x :
   forall (s1 s2 : store) (x : var) (v1 v2 : Z),
@@ -445,7 +508,7 @@ Qed.
 
 Lemma update_cancel : forall s x v, update (update s x v) x (s x) = s.
 Proof.
-  intros s x v; apply store_ext; intro y.
+  intros s x v; apply store_ext; [intro y | reflexivity].
   destruct (Fin.eq_dec y x) as [->|Hy].
   - now rewrite update_eq.
   - now rewrite !update_neq by auto.
@@ -484,7 +547,16 @@ Inductive nf_expr (x : var) : expr -> Prop :=
   | nf_Econst : forall z, nf_expr x (Econst z)
   | nf_Evar   : forall y, y <> x -> nf_expr x (Evar y)
   | nf_Ebin   : forall op e1 e2,
-      nf_expr x e1 -> nf_expr x e2 -> nf_expr x (Ebin op e1 e2).
+      nf_expr x e1 -> nf_expr x e2 -> nf_expr x (Ebin op e1 e2)
+  | nf_Eidx   : forall a e, nf_expr x e -> nf_expr x (Eidx a e).
+
+(* the array a does not occur in e *)
+Inductive anf_expr (a : arr) : expr -> Prop :=
+  | anf_Econst : forall z, anf_expr a (Econst z)
+  | anf_Evar   : forall y, anf_expr a (Evar y)
+  | anf_Ebin   : forall op e1 e2,
+      anf_expr a e1 -> anf_expr a e2 -> anf_expr a (Ebin op e1 e2)
+  | anf_Eidx   : forall b e, b <> a -> anf_expr a e -> anf_expr a (Eidx b e).
 
 (* Assignments must not read their own destination; call/uncall are
    always well-formed here (the body's well-formedness is a property of
@@ -500,7 +572,9 @@ Inductive wf_stmt : stmt -> Prop :=
   | wf_Scall   : forall p ys, wf_stmt (Scall p ys)
   | wf_Suncall : forall p ys, wf_stmt (Suncall p ys)
   | wf_Slocal  : forall x e1 st e2,
-      nf_expr x e1 -> nf_expr x e2 -> wf_stmt st -> wf_stmt (Slocal x e1 st e2).
+      nf_expr x e1 -> nf_expr x e2 -> wf_stmt st -> wf_stmt (Slocal x e1 st e2)
+  | wf_Saass   : forall a e1 op e2,
+      anf_expr a e1 -> anf_expr a e2 -> wf_stmt (Saass a e1 op e2).
 
 Definition wf_penv (Γ : penv) : Prop := forall p, wf_stmt (body (Γ p)).
 
@@ -529,12 +603,12 @@ Inductive wf_cs : cont_stmt -> Prop :=
   | wf_cs_local      : forall x v e1 cs e2,
       nf_expr x e1 -> nf_expr x e2 -> wf_cs cs -> wf_cs (CS_local x v e1 cs e2).
 
-Local Hint Constructors nf_expr wf_stmt wf_cs : core.
+Local Hint Constructors nf_expr anf_expr wf_stmt wf_cs : core.
 
 (* Decidability of well-formedness. *)
 Fixpoint nf_expr_dec (x : var) (e : expr) : {nf_expr x e} + {~ nf_expr x e}.
 Proof.
-  destruct e as [z | y | op e1 e2].
+  destruct e as [z | y | op e1 e2 | a e1].
   - left; constructor.
   - destruct (Fin.eq_dec y x) as [-> | Hy].
     + right; intro H; inversion H; congruence.
@@ -544,11 +618,32 @@ Proof.
       * left; constructor; assumption.
       * right; intro H; inversion H; subst; contradiction.
     + right; intro H; inversion H; subst; contradiction.
+  - destruct (nf_expr_dec x e1) as [H1 | H1].
+    + left; constructor; assumption.
+    + right; intro H; inversion H; subst; contradiction.
+Defined.
+
+Fixpoint anf_expr_dec (a : arr) (e : expr) : {anf_expr a e} + {~ anf_expr a e}.
+Proof.
+  destruct e as [z | y | op e1 e2 | b e1].
+  - left; constructor.
+  - left; constructor.
+  - destruct (anf_expr_dec a e1) as [H1 | H1].
+    + destruct (anf_expr_dec a e2) as [H2 | H2].
+      * left; constructor; assumption.
+      * right; intro H; inversion H; subst; contradiction.
+    + right; intro H; inversion H; subst; contradiction.
+  - destruct (Fin.eq_dec b a) as [-> | Hb].
+    + right; intro H; inversion H; congruence.
+    + destruct (anf_expr_dec a e1) as [H1 | H1].
+      * left; constructor; assumption.
+      * right; intro H; inversion H; subst; contradiction.
 Defined.
 
 Fixpoint wf_stmt_dec (st : stmt) : {wf_stmt st} + {~ wf_stmt st}.
 Proof.
-  destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2].
+  destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2
+                 | r e1 op e2].
   - left; constructor.
   - destruct (nf_expr_dec x e) as [H | H].
     + left; constructor; exact H.
@@ -577,6 +672,10 @@ Proof.
     destruct (wf_stmt_dec a) as [Ha | Ha].
     + left; constructor; assumption.
     + right; intro Hw; inversion Hw; subst; contradiction.
+  - destruct (anf_expr_dec r e1) as [H1 | H1];
+    [| right; intro Hw; inversion Hw; subst; contradiction].
+    destruct (anf_expr_dec r e2) as [H2 | H2];
+    [left; constructor; assumption | right; intro Hw; inversion Hw; subst; contradiction].
 Defined.
 
 Fixpoint wf_cs_dec (cs : cont_stmt) : {wf_cs cs} + {~ wf_cs cs}.
@@ -619,18 +718,96 @@ Proof.
   - reflexivity.
   - now rewrite update_neq by auto.
   - now rewrite IHHnf1, IHHnf2.
+  - now rewrite IHHnf.
 Qed.
 
 Lemma eval_agree :
   forall x e (s s' : store),
     nf_expr x e ->
     (forall y, y <> x -> s y = s' y) ->
+    sa s = sa s' ->
     eval s e = eval s' e.
 Proof.
-  intros x e s s' Hnf Hag; induction Hnf; simpl.
+  intros x e s s' Hnf Hag Ha; induction Hnf; simpl.
   - reflexivity.
   - now rewrite (Hag _ H).
   - now rewrite IHHnf1, IHHnf2.
+  - rewrite IHHnf. unfold aread, aget. now rewrite Ha.
+Qed.
+
+(* Array counterparts: an update of a does not affect an a-free
+   expression, and a-free expressions agree on stores that agree off a. *)
+Lemma eval_aupdate_invariant :
+  forall a e s i v, anf_expr a e -> eval (aupdate s a i v) e = eval s e.
+Proof.
+  intros a e s i v Hnf; induction Hnf; simpl.
+  - reflexivity.
+  - reflexivity.
+  - now rewrite IHHnf1, IHHnf2.
+  - rewrite IHHnf. unfold aread, aget; simpl.
+    now rewrite nth_replace_neq by auto.
+Qed.
+
+Lemma eval_aagree :
+  forall a e (s s' : store),
+    anf_expr a e ->
+    sv s = sv s' ->
+    (forall b, b <> a -> Vector.nth (sa s) b = Vector.nth (sa s') b) ->
+    eval s e = eval s' e.
+Proof.
+  intros a e s s' Hnf Hv Hb; induction Hnf; simpl.
+  - reflexivity.
+  - unfold lookup. now rewrite Hv.
+  - now rewrite IHHnf1, IHHnf2.
+  - rewrite IHHnf. unfold aread, aget. now rewrite (Hb _ H).
+Qed.
+
+Lemma aget_aupdate_eq : forall s a i v, aget (aupdate s a i v) a i = v.
+Proof. intros; unfold aget, aupdate; simpl. now rewrite !nth_replace_eq. Qed.
+
+Lemma aupdate_cancel : forall s a i v, aupdate (aupdate s a i v) a i (aget s a i) = s.
+Proof.
+  intros [vs ars] a i v; unfold aupdate, aget; simpl; f_equal.
+  apply vec_ext; intro b.
+  destruct (Fin.eq_dec b a) as [->|Hb].
+  - rewrite !nth_replace_eq. apply vec_ext; intro j.
+    destruct (Fin.eq_dec j i) as [->|Hj].
+    + now rewrite nth_replace_eq.
+    + now rewrite !nth_replace_neq by auto.
+  - now rewrite !nth_replace_neq by auto.
+Qed.
+
+(* Partial injectivity of J_AAsn: the index is recovered because e1 does
+   not read a, the cell because e2 does not read a and op= is injective. *)
+Lemma aasn_step_injective :
+  forall a e1 op e2 (s1 s2 : store) i1 i2,
+    anf_expr a e1 -> anf_expr a e2 ->
+    idx (eval s1 e1) = Some i1 -> idx (eval s2 e1) = Some i2 ->
+    aupdate s1 a i1 (apply_upd op (aget s1 a i1) (eval s1 e2))
+      = aupdate s2 a i2 (apply_upd op (aget s2 a i2) (eval s2 e2)) ->
+    s1 = s2.
+Proof.
+  intros a e1 op e2 [v1 r1] [v2 r2] i1 i2 Ha1 Ha2 Hi1 Hi2 Hu.
+  unfold aupdate, aget in Hu; simpl in Hu. injection Hu as Hv Hr. subst v2.
+  assert (Hoff : forall b, b <> a -> Vector.nth r1 b = Vector.nth r2 b).
+  { intros b Hb. apply (f_equal (fun r => Vector.nth r b)) in Hr.
+    now rewrite !nth_replace_neq in Hr by auto. }
+  assert (He1 : eval (mkstore v1 r1) e1 = eval (mkstore v1 r2) e1)
+    by (eapply eval_aagree; [exact Ha1 | reflexivity | exact Hoff]).
+  rewrite He1, Hi2 in Hi1. injection Hi1 as ->.
+  assert (He2 : eval (mkstore v1 r1) e2 = eval (mkstore v1 r2) e2)
+    by (eapply eval_aagree; [exact Ha2 | reflexivity | exact Hoff]).
+  apply (f_equal (fun r => Vector.nth r a)) in Hr.
+  rewrite !nth_replace_eq in Hr.
+  f_equal. apply vec_ext; intro b.
+  destruct (Fin.eq_dec b a) as [->|Hb]; [| exact (Hoff b Hb)].
+  apply vec_ext; intro j.
+  destruct (Fin.eq_dec j i1) as [->|Hj].
+  - apply (f_equal (fun w => Vector.nth w i1)) in Hr.
+    rewrite !nth_replace_eq in Hr. simpl in He2. rewrite He2 in Hr.
+    eapply apply_upd_injective; exact Hr.
+  - apply (f_equal (fun w => Vector.nth w j)) in Hr.
+    now rewrite !nth_replace_neq in Hr by auto.
 Qed.
 
 (* Partial injectivity of the J_Asn rule in the store: two pre-stores
@@ -647,11 +824,12 @@ Proof.
     by (eapply update_injective_off_x; exact Hupd).
   assert (Hveq : apply_upd op (s1 x) (eval s1 e) = apply_upd op (s2 x) (eval s2 e))
     by (eapply update_value_at_x; exact Hupd).
+  assert (Ha : sa s1 = sa s2) by (eapply update_sa; exact Hupd).
   assert (Hev : eval s1 e = eval s2 e)
-    by (eapply eval_agree; [exact Hnf | exact Hoff]).
+    by (eapply eval_agree; [exact Hnf | exact Hoff | exact Ha]).
   rewrite Hev in Hveq.
   apply apply_upd_injective in Hveq.
-  apply store_ext; intro y.
+  apply store_ext; [intro y | exact Ha].
   destruct (Fin.eq_dec y x) as [->|Hy].
   - exact Hveq.
   - apply Hoff; exact Hy.
@@ -663,7 +841,8 @@ Lemma local_enter_injective :
   forall x (s1 s2 : store) v1 v2,
     s1 x = s2 x -> update s1 x v1 = update s2 x v2 -> s1 = s2.
 Proof.
-  intros x s1 s2 v1 v2 Hx Hupd. apply store_ext; intro y.
+  intros x s1 s2 v1 v2 Hx Hupd.
+  apply store_ext; [intro y | eapply update_sa; exact Hupd].
   destruct (Fin.eq_dec y x) as [->|Hy]; [exact Hx |].
   eapply update_injective_off_x; [exact Hupd | exact Hy].
 Qed.
@@ -680,7 +859,7 @@ Proof.
   assert (Hoff : forall y, y <> x -> s1 y = s2 y)
     by (intros y Hy; eapply update_injective_off_x; [exact Hupd | exact Hy]).
   apply local_enter_injective with (x := x) (v1 := v) (v2 := v); [| exact Hupd].
-  rewrite H1, H2. eapply eval_agree; [exact Hnf | exact Hoff].
+  rewrite H1, H2. eapply eval_agree; [exact Hnf | exact Hoff | eapply update_sa; exact Hupd].
 Qed.
 
 (* ================================================================= *)
@@ -729,6 +908,11 @@ Proof.
   intros Γ cfg cfg1 cfg2 H1; revert cfg2.
   induction H1; intros cfg2 H2; inversion H2; subst;
     try reflexivity; try contradiction; try kill_post; try use_IH.
+  (* J_AAsn vs J_AAsn: the index is a function of the store. *)
+  all: match goal with
+       | [ Ha : idx ?z = Some ?i, Hb : idx ?z = Some ?j |- _ ] =>
+           rewrite Ha in Hb; injection Hb as ->; reflexivity
+       end.
 Qed.
 
 (* ================================================================= *)
@@ -751,6 +935,7 @@ Ltac wf_inv :=
   | [ H : wf_cs (CS_uncall _ _ _)        |- _ ] => inversion H; subst; clear H
   | [ H : wf_cs (CS_local _ _ _ _ _)     |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Slocal _ _ _ _)       |- _ ] => inversion H; subst; clear H
+  | [ H : wf_stmt (Saass _ _ _ _)        |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Sass _ _ _)           |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Sseq _ _)             |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Sif _ _ _ _)          |- _ ] => inversion H; subst; clear H
@@ -810,7 +995,13 @@ Proof.
   - constructor.
     + apply IHHnf1. intros y Hy; apply Hinj; apply List.in_or_app; auto.
     + apply IHHnf2. intros y Hy; apply Hinj; apply List.in_or_app; auto.
+  - constructor. apply IHHnf. intros y Hy; apply Hinj; exact Hy.
 Qed.
+
+(* Renaming scalars leaves array occurrences alone. *)
+Lemma anf_expr_rename :
+  forall ρ a e, anf_expr a e -> anf_expr a (rename_expr ρ e).
+Proof. intros ρ a e H; induction H; simpl; auto. Qed.
 
 (* Renaming that is injective on the variables of st preserves
    well-formedness. *)
@@ -841,6 +1032,7 @@ Proof.
       right; apply List.in_or_app; right; apply List.in_or_app; auto.
     + apply IHHwf. intros u w Hu Hw. apply Hinj; simpl; right;
         apply List.in_or_app; right; apply List.in_or_app; auto.
+  - constructor; apply anf_expr_rename; assumption.
 Qed.
 
 (* The body a well-formed environment instantiates at an accepted call is
@@ -902,6 +1094,23 @@ Ltac bwd_ctx IH cs s :=
       injection E as ? ?; subst; reflexivity
   end.
 
+(* [inversion] sees through [update]/[aupdate] to the two fields of the
+   store record; fold the field equations back into store equations. *)
+Ltac fold_update :=
+  repeat match goal with
+  | [ Hv : Vector.replace (sv ?sb) ?x ?vb = Vector.replace (sv ?sc) ?x ?vc,
+      Ha : sa ?sb = sa ?sc |- _ ] =>
+      assert (update sb x vb = update sc x vc)
+        by (unfold update; rewrite Hv, Ha; reflexivity);
+      clear Hv Ha
+  | [ Hv : sv ?sb = sv ?sc,
+      Hr : Vector.replace (sa ?sb) ?a (Vector.replace (Vector.nth (sa ?sb) ?a) ?ib ?wb)
+         = Vector.replace (sa ?sc) ?a (Vector.replace (Vector.nth (sa ?sc) ?a) ?ic ?wc) |- _ ] =>
+      assert (aupdate sb a ib wb = aupdate sc a ic wc)
+        by (unfold aupdate; rewrite Hv, Hr; reflexivity);
+      clear Hv Hr
+  end.
+
 (* Paper-faithful form: well-formedness of both predecessors. *)
 Theorem jstep_bwd_deterministic :
   forall Γ cfg1 cfg2 cfg,
@@ -909,7 +1118,7 @@ Theorem jstep_bwd_deterministic :
     jstep Γ cfg1 cfg -> jstep Γ cfg2 cfg -> cfg1 = cfg2.
 Proof.
   intros Γ cfg1 cfg2 cfg Hwf1 Hwf2 H1; revert cfg2 Hwf1 Hwf2.
-  induction H1; intros cfg2 Hwf1 Hwf2 H2; simpl in *; inversion H2; subst;
+  induction H1; intros cfg2 Hwf1 Hwf2 H2; simpl in *; inversion H2; subst; fold_update;
     try reflexivity;
     try contradiction;
     try kill_post;
@@ -944,6 +1153,15 @@ Proof.
         rewrite Hss; reflexivity
     end.
   - inversion Hwf1; subst; inversion Hwf2; subst; bwd_ctx IHjstep cs s.
+  - (* J_AAsn vs J_AAsn *)
+    wf_inv.
+    match goal with
+    | [ Hu : aupdate ?sb a ?ib _ = aupdate ?sc a ?ic _,
+        Hb : idx (eval ?sb e1) = Some ?ib, Hc : idx (eval ?sc e1) = Some ?ic,
+        Ha1 : anf_expr a e1, Ha2 : anf_expr a e2 |- _ ] =>
+        rewrite (@aasn_step_injective a e1 op e2 sb sc ib ic Ha1 Ha2 Hb Hc Hu);
+        reflexivity
+    end.
 Qed.
 
 (* Single-hypothesis form: well-formedness of the common target,
@@ -1008,7 +1226,7 @@ Proof. intros; subst; constructor. Qed.
 
 Lemma update_shadow : forall s x a b, update (update s x a) x b = update s x b.
 Proof.
-  intros s x a b; apply store_ext; intro y.
+  intros s x a b; apply store_ext; [intro y | reflexivity].
   destruct (Fin.eq_dec y x) as [->|Hy].
   - now rewrite !update_eq.
   - now rewrite !update_neq by auto.
@@ -1016,7 +1234,7 @@ Qed.
 
 Lemma update_same : forall s x, update s x (s x) = s.
 Proof.
-  intros s x; apply store_ext; intro y.
+  intros s x; apply store_ext; [intro y | reflexivity].
   destruct (Fin.eq_dec y x) as [->|Hy].
   - now rewrite update_eq.
   - now rewrite update_neq by auto.
@@ -1034,6 +1252,13 @@ Lemma J_Local_Exit' :
   forall Γ x v e1 st e2 (s s' : store),
     s x = eval s e2 -> s' = update s x v ->
     jstep Γ (CS_local x v e1 (CS_post st) e2, s) (CS_post (Slocal x e1 st e2), s').
+Proof. intros; subst; constructor; assumption. Qed.
+
+Lemma J_AAsn' :
+  forall Γ a e1 op e2 (s s' : store) i,
+    idx (eval s e1) = Some i ->
+    s' = aupdate s a i (apply_upd op (aget s a i) (eval s e2)) ->
+    jstep Γ (CS_pre (Saass a e1 op e2), s) (CS_post (Saass a e1 op e2), s').
 Proof. intros; subst; constructor; assumption. Qed.
 
 (* Meta-level reversibility, realized syntactically: one forward step of
@@ -1088,6 +1313,12 @@ Proof.
     + rewrite eval_update_invariant by exact Hnf.
       rewrite update_shadow, <- H, update_same. reflexivity.
   - apply J_Ctx_Local;     apply IHjstep; wf_inv; assumption.
+  - (* J_AAsn: same index (a not in e1), inverse operator undoes the cell *)
+    wf_inv.
+    apply J_AAsn' with (i := i).
+    + rewrite eval_aupdate_invariant by assumption. exact H.
+    + rewrite aget_aupdate_eq, eval_aupdate_invariant, apply_upd_inv by assumption.
+      symmetry; apply aupdate_cancel.
 Qed.
 
 Theorem inv_step_reverses :
@@ -1135,10 +1366,8 @@ Proof. decide equality. Defined.
 
 Definition expr_eq_dec (a b : expr) : {a = b} + {a <> b}.
 Proof.
-  decide equality.
-  - apply Z.eq_dec.
-  - apply Fin.eq_dec.
-  - apply binop_eq_dec.
+  decide equality;
+    first [ apply Z.eq_dec | apply Fin.eq_dec | apply binop_eq_dec ].
 Defined.
 
 Definition stmt_eq_dec (a b : stmt) : {a = b} + {a <> b}.
@@ -1171,6 +1400,12 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
       then Some (CS_uncall p ys (CS_pre (inv (inst (Γ p) ys))), s) else None
   | CS_pre (Slocal x e1 st e2) =>
       Some (CS_local x (s x) e1 (CS_pre st) e2, update s x (eval s e1))
+  | CS_pre (Saass a e1 op e2) =>
+      match idx (eval s e1) with
+      | Some i => Some (CS_post (Saass a e1 op e2),
+                        aupdate s a i (apply_upd op (aget s a i) (eval s e2)))
+      | None => None
+      end
   | CS_post _ => None
   | CS_seq_L cs1 s2 =>
       match step_fun Γ cs1 s with
@@ -1272,7 +1507,8 @@ Lemma step_fun_sound :
 Proof.
   intros Γ cs; induction cs; intros s cs' s' H; simpl in H.
   - (* CS_pre *)
-    destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2].
+    destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2
+                   | r e1 op e2].
     + injection H as ? ?; subst; constructor.
     + injection H as ? ?; subst; constructor.
     + injection H as ? ?; subst; constructor.
@@ -1286,6 +1522,8 @@ Proof.
     + destruct (call_ok (Γ p) ys) eqn:Ok; [| discriminate].
       injection H as ? ?; subst; constructor; exact Ok.
     + injection H as ? ?; subst; constructor.
+    + destruct (idx (eval s e1)) eqn:Ei; [| discriminate].
+      injection H as ? ?; subst; constructor; exact Ei.
   - (* CS_post *) discriminate.
   - (* CS_seq_L *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
@@ -1384,7 +1622,8 @@ Inductive jnsteps (Γ : penv) : nat -> cont_stmt * store -> cont_stmt * store ->
   | JN_step : forall n cfg1 cfg2 cfg3,
       jstep Γ cfg1 cfg2 -> jnsteps Γ n cfg2 cfg3 -> jnsteps Γ (S n) cfg1 cfg3.
 
-Definition zero_store : store := Vector.const 0 10%nat.
+Definition zero_store : store :=
+  mkstore (Vector.const 0 10%nat) (Vector.const (Vector.const 0 asize) 4%nat).
 Definition Γ0 : penv := fun _ => mkproc List.nil Sskip.
 
 (*  X0 += 1;  if X0 then X1 ^= 3 else skip fi X0  *)
@@ -1553,6 +1792,50 @@ Proof.
   - intro H. inversion H.
 Qed.
 
+(* ---- 15c. Arrays: worked examples ---- *)
+
+(* Set a cell by an integer index (examples only). *)
+Definition aset (s : store) (a : arr) (z : Z) (v : Z) : store :=
+  match idx z with Some i => aupdate s a i v | None => s end.
+
+(*  X0 += 3;  A0[X0] += 5;  A0[X0 + 1] ^= A0[X0]  *)
+Definition ex_arr : stmt :=
+  Sseq (Sass X0 Uadd (Econst 3))
+       (Sseq (Saass A0 (Evar X0) Uadd (Econst 5))
+             (Saass A0 (Ebin Bplus (Evar X0) (Econst 1)) Uxor (Eidx A0 (Evar X0)))).
+
+Example j_array_run :
+  run Γ0 20%nat (CS_pre ex_arr, zero_store)
+  = (CS_post ex_arr, aset (aset (update zero_store X0 3) A0 3 5) A0 4 5).
+Proof. vm_compute. reflexivity. Qed.
+
+(* The inverse program restores the zero store. *)
+Example j_array_inverse :
+  run Γ0 20%nat (CS_pre (inv ex_arr), aset (aset (update zero_store X0 3) A0 3 5) A0 4 5)
+  = (CS_post (inv ex_arr), zero_store).
+Proof. vm_compute. reflexivity. Qed.
+
+(* An out-of-bounds update is stuck (asize = 8). *)
+Example j_array_out_of_bounds_stuck :
+  step_fun Γ0 (CS_pre (Saass A1 (Econst 8) Uadd (Econst 1))) zero_store = None
+  /\ step_fun Γ0 (CS_pre (Saass A1 (Econst (-1)) Uadd (Econst 1))) zero_store = None.
+Proof. split; vm_compute; reflexivity. Qed.
+
+(* Why wf demands a not in e2: A0[0] ^= A0[0] clears the cell, so two
+   distinct stores step to the same one and backward determinism fails. *)
+Example aasn_bwd_needs_anf :
+  let p := Saass A0 (Econst 0) Uxor (Eidx A0 (Econst 0)) in
+  let c1 := (CS_pre p, aset zero_store A0 0 1) in
+  let c2 := (CS_pre p, aset zero_store A0 0 2) in
+  let c  := (CS_post p, zero_store) in
+  jstep Γ0 c1 c /\ jstep Γ0 c2 c /\ c1 <> c2.
+Proof.
+  simpl. split; [| split].
+  - eapply J_AAsn'; vm_compute; reflexivity.
+  - eapply J_AAsn'; vm_compute; reflexivity.
+  - intro H. inversion H.
+Qed.
+
 (* ================================================================= *)
 (* 16. Axiom audit                                                    *)
 (* ================================================================= *)
@@ -1627,3 +1910,16 @@ Print Assumptions j_local_inverse.
 Print Assumptions j_delocal_mismatch_stuck.
 Print Assumptions j_delocal_mismatch_no_step.
 Print Assumptions local_bwd_needs_nf.
+Print Assumptions vec_ext.
+Print Assumptions update_sa.
+Print Assumptions eval_aupdate_invariant.
+Print Assumptions eval_aagree.
+Print Assumptions aget_aupdate_eq.
+Print Assumptions aupdate_cancel.
+Print Assumptions aasn_step_injective.
+Print Assumptions anf_expr_rename.
+Print Assumptions J_AAsn'.
+Print Assumptions j_array_run.
+Print Assumptions j_array_inverse.
+Print Assumptions j_array_out_of_bounds_stuck.
+Print Assumptions aasn_bwd_needs_anf.
