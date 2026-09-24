@@ -1,17 +1,18 @@
 # Janus control-token semantics: the rule table
 
-> **要旨（日本語）** R-CORE の制御トークン（•）小ステップ意味論を、配列・局所変数・引数・除算を除いた Janus コアへ拡張したときの全 27 規則を一覧にする。
+> **要旨（日本語）** R-CORE の制御トークン（•）小ステップ意味論を、配列・局所変数・除算を除いた Janus コア（参照渡しの手続き引数を含む。2026-09-24 追加）へ拡張したときの全 27 規則を一覧にする。
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-09-23): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 36 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-24): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 56 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
 ## 1. Scope and syntax
 
 The language is the Janus core of Lanese–Vidal (RC 2026) minus arrays, minus `local`/`delocal`,
-minus procedure parameters, and minus the partial operators `/` and `%`. Values are `Z`
+and minus the partial operators `/` and `%`, **plus** call-by-reference procedure parameters
+(which Lanese–Vidal do not treat). Values are `Z`
 (Rocq `Z`), truth is "nonzero". Variables are `X0..X9`, realized as `Fin.t 10` exactly as in
 `proofs.v` (so stores are `Vector.t Z 10` and store extensionality stays a theorem, no axiom).
 
@@ -25,11 +26,28 @@ s ::= skip                                        Sskip
     | s1 ; s2                                      Sseq s1 s2
     | if e1 then s1 else s2 fi e2                  Sif e1 s1 s2 e2
     | from e1 do s1 loop s2 until e2               Sloop e1 s1 s2 e2
-    | call p                                       Scall p
-    | uncall p                                     Suncall p
+    | call p(y1, …, yn)                            Scall p ys      (ys : list var)
+    | uncall p(y1, …, yn)                          Suncall p ys
 
-Γ : pid -> stmt      procedure environment, a parameter of the step relation (jstep Γ)
+Γ : pid -> proc      procedure environment, a parameter of the step relation (jstep Γ)
+proc = { formals : list var ; body : stmt }
 ```
+
+**Parameters (by reference).** `call p(ys)` runs `inst (Γ p) ys := rename (ren xs ys) (body)`,
+where `xs = formals (Γ p)` and `ren xs ys` maps the i-th formal to the i-th actual and every other
+variable to itself (variables that are not formals are globals). With one global store and no
+locals, running the renamed body *is* call-by-reference. All four call/uncall rules carry the
+decidable side condition
+
+    call_ok (Γ p) ys  :=  |xs| = |ys|  ∧  nodup xs  ∧  nodup ys  ∧  ren xs ys injective on vars(body)
+
+which is Janus's no-aliasing rule: two actuals may not coincide, and an actual may not coincide with
+a global the body uses. An aliasing call is stuck (`j_alias_actuals_stuck`,
+`j_alias_global_stuck`). The side condition is what keeps well-formedness invariant
+(`wf_inst`, via `wf_stmt_rename`); without it a well-formed environment can instantiate `X1 ^= X1`
+(`alias_breaks_wf`), and removing it from `J_Call_Enter` makes `wf_cs_step_preserved_cfg` fail
+(mutation-checked 2026-09-24). A parameterless procedure is the case `xs = ys = []`
+(`inst_no_params`, `call_ok_no_params`), so the previous parameterless core is a special case.
 
 Expression evaluation `eval s e : Z` is **total** (every operator is total on `Z`; the
 comparison and logical operators return 0/1). It is **not** reversible, and is not meant to
@@ -50,8 +68,8 @@ and fixes `Uxor`. `apply_upd (inv_upd op) (apply_upd op d v) v = d`, and
 | `s1 ; s2` | `inv s2 ; inv s1` |
 | `if e1 then s1 else s2 fi e2` | `if e2 then inv s1 else inv s2 fi e1` |
 | `from e1 do s1 loop s2 until e2` | `from e2 do inv s1 loop inv s2 until e1` |
-| `call p` | `uncall p` |
-| `uncall p` | `call p` |
+| `call p(ys)` | `uncall p(ys)` |
+| `uncall p(ys)` | `call p(ys)` |
 
 `inv_involutive : inv (inv s) = s`; `wf_stmt_inv : wf_stmt s -> wf_stmt (inv s)`.
 The procedure environment is **not** inverted: `uncall p` runs `inv (Γ p)` forwards, so a single Γ
@@ -133,21 +151,22 @@ inside the hole). Assertion failures (`e2` false at the end of a then-branch, `e
 | 13 | `J_Loop_Exit` | `e2` true | `from e1 do s1 loop s2 •until e2` (`CS_loop_until e1 s1 s2 e2`) | `(from e1 do s1 loop s2 until e2)•` (`CS_post (Sloop e1 s1 s2 e2)`) | control |
 | 14 | `J_Loop_Iter1` | `e2` false | `from e1 do s1 loop s2 •until e2` (`CS_loop_until e1 s1 s2 e2`) | `from e1 do s1 loop ⟨•s2⟩ until e2` (`CS_loop_loop e1 s1 (CS_pre s2) e2`) | control |
 | 15 | `J_Loop_Iter2` | `e1` false | `from e1 do s1 loop ⟨s2•⟩ until e2` (`CS_loop_loop e1 s1 (CS_post s2) e2`) | `from e1 •do s1 loop s2 until e2` (`CS_loop_from e1 s1 s2 e2`) | control |
-| 16 | `J_Call_Enter` | — | `•call p` (`CS_pre (Scall p)`) | `call p ⟨•(Γ p)⟩` (`CS_call p (CS_pre (Γ p))`) | administrative |
-| 17 | `J_Call_Exit` | — | `call p ⟨(Γ p)•⟩` (`CS_call p (CS_post (Γ p))`) | `(call p)•` (`CS_post (Scall p)`) | administrative |
-| 18 | `J_Uncall_Enter` | — | `•uncall p` (`CS_pre (Suncall p)`) | `uncall p ⟨•(inv (Γ p))⟩` (`CS_uncall p (CS_pre (inv (Γ p)))`) | administrative |
-| 19 | `J_Uncall_Exit` | — | `uncall p ⟨(inv (Γ p))•⟩` (`CS_uncall p (CS_post (inv (Γ p))))`) | `(uncall p)•` (`CS_post (Suncall p)`) | administrative |
+| 16 | `J_Call_Enter` | `call_ok (Γ p) ys` | `•call p(ys)` (`CS_pre (Scall p ys)`) | `call p(ys) ⟨•b⟩`, `b = inst (Γ p) ys` (`CS_call p ys (CS_pre b)`) | administrative |
+| 17 | `J_Call_Exit` | `call_ok (Γ p) ys` | `call p(ys) ⟨b•⟩` (`CS_call p ys (CS_post b)`) | `(call p(ys))•` (`CS_post (Scall p ys)`) | administrative |
+| 18 | `J_Uncall_Enter` | `call_ok (Γ p) ys` | `•uncall p(ys)` (`CS_pre (Suncall p ys)`) | `uncall p(ys) ⟨•(inv b)⟩` (`CS_uncall p ys (CS_pre (inv b))`) | administrative |
+| 19 | `J_Uncall_Exit` | `call_ok (Γ p) ys` | `uncall p(ys) ⟨(inv b)•⟩` (`CS_uncall p ys (CS_post (inv b))`) | `(uncall p(ys))•` (`CS_post (Suncall p ys)`) | administrative |
 | 20 | `J_Ctx_Seq_L` | `(cs, s) → (cs', s')` | `⟨cs⟩ ;▷ s2, s` (`CS_seq_L cs s2`) | `⟨cs'⟩ ;▷ s2, s'` (`CS_seq_L cs' s2`) | congruence |
 | 21 | `J_Ctx_Seq_R` | `(cs, s) → (cs', s')` | `s1 ◁; ⟨cs⟩, s` (`CS_seq_R s1 cs`) | `s1 ◁; ⟨cs'⟩, s'` (`CS_seq_R s1 cs'`) | congruence |
 | 22 | `J_Ctx_If_Then` | `(cs, s) → (cs', s')` | `if e1 then ⟨cs⟩ else s2 fi e2, s` (`CS_if_then e1 cs s2 e2`) | `if e1 then ⟨cs'⟩ else s2 fi e2, s'` (`CS_if_then e1 cs' s2 e2`) | congruence |
 | 23 | `J_Ctx_If_Else` | `(cs, s) → (cs', s')` | `if e1 then s1 else ⟨cs⟩ fi e2, s` (`CS_if_else e1 s1 cs e2`) | `if e1 then s1 else ⟨cs'⟩ fi e2, s'` (`CS_if_else e1 s1 cs' e2`) | congruence |
 | 24 | `J_Ctx_Loop_Do` | `(cs, s) → (cs', s')` | `from e1 do ⟨cs⟩ loop s2 until e2, s` (`CS_loop_do e1 cs s2 e2`) | `from e1 do ⟨cs'⟩ loop s2 until e2, s'` (`CS_loop_do e1 cs' s2 e2`) | congruence |
 | 25 | `J_Ctx_Loop_Loop` | `(cs, s) → (cs', s')` | `from e1 do s1 loop ⟨cs⟩ until e2, s` (`CS_loop_loop e1 s1 cs e2`) | `from e1 do s1 loop ⟨cs'⟩ until e2, s'` (`CS_loop_loop e1 s1 cs' e2`) | congruence |
-| 26 | `J_Ctx_Call` | `(cs, s) → (cs', s')` | `call p ⟨cs⟩, s` (`CS_call p cs`) | `call p ⟨cs'⟩, s'` (`CS_call p cs'`) | congruence |
-| 27 | `J_Ctx_Uncall` | `(cs, s) → (cs', s')` | `uncall p ⟨cs⟩, s` (`CS_uncall p cs`) | `uncall p ⟨cs'⟩, s'` (`CS_uncall p cs'`) | congruence |
+| 26 | `J_Ctx_Call` | `(cs, s) → (cs', s')` | `call p(ys) ⟨cs⟩, s` (`CS_call p ys cs`) | `call p(ys) ⟨cs'⟩, s'` (`CS_call p ys cs'`) | congruence |
+| 27 | `J_Ctx_Uncall` | `(cs, s) → (cs', s')` | `uncall p(ys) ⟨cs⟩, s` (`CS_uncall p ys cs`) | `uncall p(ys) ⟨cs'⟩, s'` (`CS_uncall p ys cs'`) | congruence |
 
 Where `→` in a premise abbreviates `jstep Γ` for the same Γ. Counting: 1 data, 8 control,
-10 administrative, 8 congruence = 27.
+10 administrative, 8 congruence = 27. The side condition of rules 16–19 depends only on the
+syntax (`Γ p` and `ys`), never on the store, so these rules stay administrative.
 
 Two structural facts carry most of the determinism proofs, exactly as `no_step_from_at_post` and
 `no_step_to_at_pre` do in `proofs.v`:
@@ -266,12 +285,21 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `update_cancel` | `update (update s x v) x (s x) = s` — restoring the old value at `x` undoes an update (used in the `J_Asn` case of `inv_step_reverses`) | — |
 | `apply_upd_inv` | `apply_upd (inv_upd op) (apply_upd op d v) v = d` — the inverted operator undoes the update; with `inv_upd_involutive` this is why `inv (Sass x op e)` reverses `J_Asn` | — |
 | `j_example_run` (Example) | `jnsteps Γ0 7 (CS_pre ex_prog, zero_store) (CS_post ex_prog, ex_final)` — a 7-step run of `ex_prog = X0 += 1; if X0 then X1 ^= 3 else skip fi X0` from the zero store to `X0 = 1, X1 = 3` (`J_Seq_Enter`; `J_Asn` under `J_Ctx_Seq_L`; `J_Seq_Mid`; `J_If_True` under `J_Ctx_Seq_R`; `J_Asn` under `J_Ctx_Seq_R`/`J_Ctx_If_Then`; `J_Fi_True` under `J_Ctx_Seq_R`; `J_Seq_Exit`) | — |
+| `wf_stmt_rename`, `wf_inst` | a renaming injective on `vars st` preserves `wf_stmt`; hence `wf_penv Γ -> call_ok (Γ p) ys = true -> wf_stmt (inst (Γ p) ys)` | — (R-CORE has no procedures) |
+| `inst_no_params`, `call_ok_no_params` | formals `[]`, actuals `[]`: the body runs unchanged and the call is accepted (conservative extension) | — |
+| `j_call_by_reference`, `j_uncall_undoes_call` (Examples) | `X2 += 5; call 0(X3, X2)` with `proc 0(a, b) = a += b` sets `X3 = 5`; `uncall 0(X3, X2)` restores `X3 = 0` (computed with `run` over `step_fun`) | — |
+| `j_alias_actuals_stuck`, `j_alias_global_stuck`, `alias_breaks_wf` (Examples) | `call 0(X2, X2)` and `call 1(X1)` (with `proc 1(a) = a ^= X1`) are stuck; the latter would instantiate the ill-formed `X1 ^= X1` | — |
 | `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` | decision procedures | `nf_expr_dec` (L419), `wf_cmd_dec` (L444), `wf_cc_dec` (L4365) |
 
 Why `wf_penv Γ` appears where `proofs.v` had nothing: `J_Call_Enter` and `J_Uncall_Enter` bring
-`Γ p` (resp. `inv (Γ p)`) *into* the controlled statement, so preservation needs the bodies to be
-well-formed, and `J_Call_Exit` / `J_Uncall_Exit` take them out again, so reflection needs the
-same. Everything else is structural, as before.
+`inst (Γ p) ys` (resp. its inverse) *into* the controlled statement, so preservation needs the
+instantiated bodies to be well-formed, and `J_Call_Exit` / `J_Uncall_Exit` take them out again, so
+reflection needs the same. `wf_penv Γ` (every body well-formed) gives this through `wf_inst`,
+which needs `call_ok`: renaming preserves `x ∉ e` only when it is injective on the body's
+variables (`wf_stmt_rename`). Everything else is structural, as before; `jstep_deterministic`,
+`jstep_bwd_deterministic` and `inv_step_reverses` needed only the call-rule premises threaded
+through (`J_Uncall_*` are stated with `inv (inst …)`, so `rename_inv` is not used there; it is
+proved for the record).
 
 Why there is no reachability hypothesis anywhere: the only rule that can identify two distinct
 predecessors is `J_Asn`, and only through `x ∈ e`; `wf_cs` excludes exactly that and is preserved
@@ -288,8 +316,9 @@ Excluded from this core, in the order they should be added:
    `e1` and `e2`; `asn_step_injective` becomes injectivity of an update at a *computed* index.
 2. **`local x = e … delocal x = e`**. Adds a second data-carrying rule pair; the delocal assertion
    is the first place where a stuck configuration depends on a *value* rather than a guard.
-3. **Procedure parameters** (call-by-reference, distinct actuals). Changes `Γ` from `pid -> stmt`
-   to a substitution-carrying environment; `CS_call` must record the renaming.
+3. ~~**Procedure parameters**~~ — **done 2026-09-24** (§1 "Parameters"): `Γ : pid -> proc`,
+   `CS_call`/`CS_uncall` record the actuals, the body is instantiated by renaming, and the
+   no-aliasing rule is the decidable side condition `call_ok`.
 4. **`/` and `%`**. Reintroduce partiality into `eval`, and with it the `Some`/`None` bookkeeping
    that the present development avoids.
 

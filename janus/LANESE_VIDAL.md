@@ -5,7 +5,7 @@
 > 彼らの Loop Lemma（到達可能配置上の ⇀ iff ↽）は、こちらでは後向き関係を逆関係として定義するため定義上成り立ち、内容は前向き決定性・整形式性下の後向き決定性・`inv_step_reverses` に移る。
 > 彼らの規則の正確な形（図）は本稿では読めていないため未検証として明示する。
 
-Status (2026-09-23): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 36 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-24): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 56 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -73,7 +73,7 @@ paragraph, cite the LNCS version. Their reference [15] to Makino–Yokoyama is p
 | **Definition 1** (reachable configuration, p.197; text L586–598): obtainable from an initial ⟨ε, ℓ1, ℓ2, []⟩ by (⇀ ∪ ↽)*; "This rules out, e.g., the case of configurations ⟨σ, ℓ, ℓ′, π⟩ where ℓ and ℓ′ are not the two ends of an edge of the CFG" | not needed as a hypothesis; the only hypothesis is `wf_cs` (and `wf_penv Γ`) | See the table below. |
 | **Lemma 3 (loop lemma)** (p.198; text L601–612): for a reachable ⟨σ,ℓ1,ℓ2,π⟩, `⇀` to ⟨σ′,…⟩ iff ⟨σ′,…⟩ `↽` back. "The proof is by case distinction on the applied rule. Full details can be found in the extended version [13]." | `bstep Γ cfg cfg' := jstep Γ cfg' cfg`, so "⇀ iff ↽" holds **by definition**. The content moves to three theorems: (a) `jstep_deterministic` (forward determinism, no hypothesis); (b) `jstep_bwd_deterministic_tgt` / `bstep_deterministic` (backward determinism under `wf_cs` of the common target, **no reachability**); (c) `inv_step_reverses` / `bstep_is_fwd_of_inv` (under `wf_cs`: the backward relation is computed by running the inverted program forwards). | (inferred) In their setting the backward relation is given by a second set of rules (Fig. 14/15), so the Loop Lemma is a genuine theorem relating two definitions. In ours the second definition is the pair `inv`/`cs_inv`, and (c) is the theorem relating it to the converse; (a)+(b) are what make the converse a *function*, which the Loop Lemma alone does not give (it states existence of an inverse step, not uniqueness — the extraction does not show a determinism lemma in the conference text). |
 | Equivalence with the big-step semantics of the literature: asserted in §4 (text L613–617), proofs in the extended version | not yet (RULES.md §7 item 8) | Both developments leave this to another document; theirs to arXiv:2602.16913, ours to future work. |
-| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 36 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
+| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 56 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
 
 ### Conditions under which the Loop Lemma holds
 
@@ -96,7 +96,9 @@ New here:
 
 - **The control-token semantics for the Janus core itself** — conditionals, `do`-part loops,
   `call`/`uncall` — answering the question of their §4 for the fragment they treat (no
-  parameters, no locals) minus arrays. Whether it "scales" in their sense is answered for this
+  parameters, no locals) minus arrays, and beyond it with call-by-reference **parameters**
+  (added 2026-09-24; `RULES.md` §1): the no-aliasing rule becomes a decidable side condition
+  `call_ok` on the call rules, and the whole theorem package carries over. Whether it "scales" in their sense is answered for this
   fragment only; arrays and locals remain open (RULES.md §7).
 - **Per-rule partial injectivity, mechanized.** The property proved is that each of the 27
   inference rules is a partial injection on well-formed configurations (`RULES.md` §5), not only

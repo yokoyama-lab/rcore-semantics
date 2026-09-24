@@ -10,3 +10,6 @@ rcore_interp.mli
 *.cmi
 *.cmo
 test_interp
+witness_driver
+difftest/*.cmi
+difftest/*.cmo
