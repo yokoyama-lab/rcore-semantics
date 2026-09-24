@@ -15,6 +15,7 @@
       from e1 do s1 loop s2 until e2,
       call p(ys) / uncall p(ys)   with call-by-reference parameters,
                           against a procedure environment Gamma,
+      local x = e1; s; delocal x = e2,
 
   and the same package of theorems is re-established, axiom-free:
 
@@ -29,14 +30,15 @@
                                      [bstep_is_fwd_of_inv]
       executable semantics           [step_fun_correct]
 
-  Scope.  This is Janus WITHOUT arrays, without local/delocal, and
-  without the division-like operators / and % (whose partiality is
-  orthogonal to the control-token question).  Procedures take
-  call-by-reference parameters (section 3a); the no-aliasing rule is the
-  decidable side condition [call_ok] of the call/uncall rules.  Values
+  Scope.  This is Janus WITHOUT arrays and without the division-like
+  operators / and % (whose partiality is orthogonal to the
+  control-token question).  Procedures take call-by-reference parameters
+  (section 3a); the no-aliasing rule is the decidable side condition
+  [call_ok] of the call/uncall rules.  [local x = e1; s; delocal x = e2]
+  blocks shadow x; the frame [CS_local] saves the outer value.  Values
   are unbounded integers (Z).  All expression evaluation is therefore
-  total, and the only partiality of the semantics is in the loop guards
-  and the call side condition.
+  total, and the only partiality of the semantics is in the loop guards,
+  the call side condition and the delocal assertion.
 
   Design.  R-CORE's [from x loop c until y] is the Janus loop
   [from x do skip loop c until y].  R-CORE needs a single "mid-loop" token
@@ -133,7 +135,9 @@ Inductive stmt : Type :=
   | Sif     (e1 : expr) (s1 s2 : stmt) (e2 : expr)
   | Sloop   (e1 : expr) (s1 s2 : stmt) (e2 : expr)
   | Scall   (p : pid) (args : list var)
-  | Suncall (p : pid) (args : list var).
+  | Suncall (p : pid) (args : list var)
+  | Slocal  (x : var) (e1 : expr) (s : stmt) (e2 : expr).
+      (* local x = e1;  s;  delocal x = e2 *)
 
 (* A procedure: its formal parameters and its body.  Parameters are passed
    by reference: [call p ys] runs the body with each formal renamed to the
@@ -190,6 +194,7 @@ Fixpoint inv (st : stmt) : stmt :=
   | Sloop e1 a b e2   => Sloop e2 (inv a) (inv b) e1
   | Scall p ys        => Suncall p ys
   | Suncall p ys      => Scall p ys
+  | Slocal x e1 a e2  => Slocal x e2 (inv a) e1
   end.
 
 (* ================================================================= *)
@@ -219,6 +224,7 @@ Fixpoint rename (ρ : var -> var) (st : stmt) : stmt :=
   | Sloop e1 a b e2 => Sloop (rename_expr ρ e1) (rename ρ a) (rename ρ b) (rename_expr ρ e2)
   | Scall p ys      => Scall p (List.map ρ ys)
   | Suncall p ys    => Suncall p (List.map ρ ys)
+  | Slocal x e1 a e2 => Slocal (ρ x) (rename_expr ρ e1) (rename ρ a) (rename_expr ρ e2)
   end.
 
 (* The body that [call p ys] runs. *)
@@ -242,6 +248,7 @@ Fixpoint vars (st : stmt) : list var :=
   | Sloop e1 a b e2 => vars_expr e1 +++ vars a +++ vars b +++ vars_expr e2
   | Scall _ ys      => ys
   | Suncall _ ys    => ys
+  | Slocal x e1 a e2 => x :: vars_expr e1 +++ vars a +++ vars_expr e2
   end.
 
 Definition var_eqb (u w : var) : bool := if Fin.eq_dec u w then true else false.
@@ -290,8 +297,11 @@ Inductive cont_stmt : Type :=
       (* token inside s2 *)
   | CS_call       (p : pid) (ys : list var) (cs : cont_stmt)
       (* token inside inst (Gamma p) ys *)
-  | CS_uncall     (p : pid) (ys : list var) (cs : cont_stmt).
+  | CS_uncall     (p : pid) (ys : list var) (cs : cont_stmt)
       (* token inside inv (inst (Gamma p) ys) *)
+  | CS_local      (x : var) (v : Z) (e1 : expr) (cs : cont_stmt) (e2 : expr).
+      (* token inside the body of local x = e1 ... delocal x = e2;
+         v is the value of the outer x, restored at delocal *)
 
 (* ================================================================= *)
 (* 5. Small-step semantics                                            *)
@@ -377,7 +387,18 @@ Inductive jstep (Γ : penv) : cont_stmt * store -> cont_stmt * store -> Prop :=
       jstep Γ (CS_call p ys cs, s) (CS_call p ys cs', s')
   | J_Ctx_Uncall : forall p ys cs cs' s s',
       jstep Γ (cs, s) (cs', s') ->
-      jstep Γ (CS_uncall p ys cs, s) (CS_uncall p ys cs', s').
+      jstep Γ (CS_uncall p ys cs, s) (CS_uncall p ys cs', s')
+  (* local/delocal: the frame saves the outer value of x. *)
+  | J_Local_Enter : forall x e1 st e2 (s : store),
+      jstep Γ (CS_pre (Slocal x e1 st e2), s)
+              (CS_local x (s x) e1 (CS_pre st) e2, update s x (eval s e1))
+  | J_Local_Exit : forall x v e1 st e2 (s : store),
+      s x = eval s e2 ->
+      jstep Γ (CS_local x v e1 (CS_post st) e2, s)
+              (CS_post (Slocal x e1 st e2), update s x v)
+  | J_Ctx_Local : forall x v e1 cs cs' e2 s s',
+      jstep Γ (cs, s) (cs', s') ->
+      jstep Γ (CS_local x v e1 cs e2, s) (CS_local x v e1 cs' e2, s').
 
 (* Backward step: the converse relation. *)
 Definition bstep (Γ : penv) (cfg1 cfg2 : cont_stmt * store) : Prop :=
@@ -477,7 +498,9 @@ Inductive wf_stmt : stmt -> Prop :=
   | wf_Sloop   : forall e1 s1 s2 e2,
       wf_stmt s1 -> wf_stmt s2 -> wf_stmt (Sloop e1 s1 s2 e2)
   | wf_Scall   : forall p ys, wf_stmt (Scall p ys)
-  | wf_Suncall : forall p ys, wf_stmt (Suncall p ys).
+  | wf_Suncall : forall p ys, wf_stmt (Suncall p ys)
+  | wf_Slocal  : forall x e1 st e2,
+      nf_expr x e1 -> nf_expr x e2 -> wf_stmt st -> wf_stmt (Slocal x e1 st e2).
 
 Definition wf_penv (Γ : penv) : Prop := forall p, wf_stmt (body (Γ p)).
 
@@ -502,7 +525,9 @@ Inductive wf_cs : cont_stmt -> Prop :=
   | wf_cs_loop_loop  : forall e1 s1 cs e2,
       wf_stmt s1 -> wf_cs cs -> wf_cs (CS_loop_loop e1 s1 cs e2)
   | wf_cs_call       : forall p ys cs, wf_cs cs -> wf_cs (CS_call p ys cs)
-  | wf_cs_uncall     : forall p ys cs, wf_cs cs -> wf_cs (CS_uncall p ys cs).
+  | wf_cs_uncall     : forall p ys cs, wf_cs cs -> wf_cs (CS_uncall p ys cs)
+  | wf_cs_local      : forall x v e1 cs e2,
+      nf_expr x e1 -> nf_expr x e2 -> wf_cs cs -> wf_cs (CS_local x v e1 cs e2).
 
 Local Hint Constructors nf_expr wf_stmt wf_cs : core.
 
@@ -523,7 +548,7 @@ Defined.
 
 Fixpoint wf_stmt_dec (st : stmt) : {wf_stmt st} + {~ wf_stmt st}.
 Proof.
-  destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys].
+  destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2].
   - left; constructor.
   - destruct (nf_expr_dec x e) as [H | H].
     + left; constructor; exact H.
@@ -545,13 +570,20 @@ Proof.
     + right; intro Hw; inversion Hw; subst; contradiction.
   - left; constructor.
   - left; constructor.
+  - destruct (nf_expr_dec x e1) as [H1 | H1];
+    [| right; intro Hw; inversion Hw; subst; contradiction].
+    destruct (nf_expr_dec x e2) as [H2 | H2];
+    [| right; intro Hw; inversion Hw; subst; contradiction].
+    destruct (wf_stmt_dec a) as [Ha | Ha].
+    + left; constructor; assumption.
+    + right; intro Hw; inversion Hw; subst; contradiction.
 Defined.
 
 Fixpoint wf_cs_dec (cs : cont_stmt) : {wf_cs cs} + {~ wf_cs cs}.
 Proof.
   destruct cs as [st | st | cs s2 | s1 cs | e1 cs s2 e2 | e1 s1 cs e2
                  | e1 s1 s2 e2 | e1 cs s2 e2 | e1 s1 s2 e2 | e1 s1 cs e2
-                 | p ys cs | p ys cs];
+                 | p ys cs | p ys cs | x v e1 cs e2];
   repeat match goal with
   | [ st : stmt |- _ ] =>
       lazymatch goal with
@@ -564,6 +596,12 @@ Proof.
       | [ H : wf_cs cs |- _ ] => fail
       | [ H : ~ wf_cs cs |- _ ] => fail
       | _ => destruct (wf_cs_dec cs)
+      end
+  | [ x : var, e : expr |- _ ] =>
+      lazymatch goal with
+      | [ H : nf_expr x e |- _ ] => fail
+      | [ H : ~ nf_expr x e |- _ ] => fail
+      | _ => destruct (nf_expr_dec x e)
       end
   end;
   try (left; constructor; assumption);
@@ -617,6 +655,32 @@ Proof.
   destruct (Fin.eq_dec y x) as [->|Hy].
   - exact Hveq.
   - apply Hoff; exact Hy.
+Qed.
+
+(* Partial injectivity of J_Local_Enter: the saved outer value fixes the
+   pre-store at x, and the update leaves every other variable alone. *)
+Lemma local_enter_injective :
+  forall x (s1 s2 : store) v1 v2,
+    s1 x = s2 x -> update s1 x v1 = update s2 x v2 -> s1 = s2.
+Proof.
+  intros x s1 s2 v1 v2 Hx Hupd. apply store_ext; intro y.
+  destruct (Fin.eq_dec y x) as [->|Hy]; [exact Hx |].
+  eapply update_injective_off_x; [exact Hupd | exact Hy].
+Qed.
+
+(* Partial injectivity of J_Local_Exit: the delocal assertion fixes the
+   pre-store at x, provided x is not read by e2. *)
+Lemma local_exit_injective :
+  forall x e2 (s1 s2 : store) v,
+    nf_expr x e2 ->
+    s1 x = eval s1 e2 -> s2 x = eval s2 e2 ->
+    update s1 x v = update s2 x v -> s1 = s2.
+Proof.
+  intros x e2 s1 s2 v Hnf H1 H2 Hupd.
+  assert (Hoff : forall y, y <> x -> s1 y = s2 y)
+    by (intros y Hy; eapply update_injective_off_x; [exact Hupd | exact Hy]).
+  apply local_enter_injective with (x := x) (v1 := v) (v2 := v); [| exact Hupd].
+  rewrite H1, H2. eapply eval_agree; [exact Hnf | exact Hoff].
 Qed.
 
 (* ================================================================= *)
@@ -685,6 +749,8 @@ Ltac wf_inv :=
   | [ H : wf_cs (CS_loop_loop _ _ _ _)   |- _ ] => inversion H; subst; clear H
   | [ H : wf_cs (CS_call _ _ _)          |- _ ] => inversion H; subst; clear H
   | [ H : wf_cs (CS_uncall _ _ _)        |- _ ] => inversion H; subst; clear H
+  | [ H : wf_cs (CS_local _ _ _ _ _)     |- _ ] => inversion H; subst; clear H
+  | [ H : wf_stmt (Slocal _ _ _ _)       |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Sass _ _ _)           |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Sseq _ _)             |- _ ] => inversion H; subst; clear H
   | [ H : wf_stmt (Sif _ _ _ _)          |- _ ] => inversion H; subst; clear H
@@ -765,6 +831,16 @@ Proof.
     constructor; auto.
   - constructor.
   - constructor.
+  - (* Slocal: x is in vars, and so are the variables of e1, st, e2 *)
+    constructor.
+    + apply nf_expr_rename; [exact H |].
+      intros y Hy Heq. apply (Hinj y x); simpl; auto.
+      right; apply List.in_or_app; auto.
+    + apply nf_expr_rename; [exact H0 |].
+      intros y Hy Heq. apply (Hinj y x); simpl; auto.
+      right; apply List.in_or_app; right; apply List.in_or_app; auto.
+    + apply IHHwf. intros u w Hu Hw. apply Hinj; simpl; right;
+        apply List.in_or_app; right; apply List.in_or_app; auto.
 Qed.
 
 (* The body a well-formed environment instantiates at an accepted call is
@@ -854,6 +930,20 @@ Proof.
   - inversion Hwf1; subst; inversion Hwf2; subst; bwd_ctx IHjstep cs s.
   - inversion Hwf1; subst; inversion Hwf2; subst; bwd_ctx IHjstep cs s.
   - inversion Hwf1; subst; inversion Hwf2; subst; bwd_ctx IHjstep cs s.
+  - (* J_Local_Enter vs J_Local_Enter *)
+    match goal with
+    | [ Hx : lookup ?sb x = lookup ?sa x, Hu : update ?sb x _ = update ?sa x _ |- _ ] =>
+        rewrite (@local_enter_injective _ _ _ _ _ Hx Hu); reflexivity
+    end.
+  - (* J_Local_Exit vs J_Local_Exit *)
+    assert (Hnf : nf_expr x e2) by (wf_inv; assumption).
+    match goal with
+    | [ Hu : update ?sb x ?vb = update ?sa x ?va |- _ ] =>
+        pose proof (@update_value_at_x _ _ _ _ _ Hu) as Hv; subst vb;
+        assert (Hss : sb = sa) by (eapply local_exit_injective; eauto);
+        rewrite Hss; reflexivity
+    end.
+  - inversion Hwf1; subst; inversion Hwf2; subst; bwd_ctx IHjstep cs s.
 Qed.
 
 (* Single-hypothesis form: well-formedness of the common target,
@@ -898,6 +988,7 @@ Fixpoint cs_inv (cs : cont_stmt) : cont_stmt :=
   | CS_loop_loop e1 s1 cs2 e2 => CS_loop_loop e2 (inv s1) (cs_inv cs2) e1
   | CS_call p ys cs1          => CS_uncall p ys (cs_inv cs1)
   | CS_uncall p ys cs1        => CS_call p ys (cs_inv cs1)
+  | CS_local x v e1 cs1 e2    => CS_local x v e2 (cs_inv cs1) e1
   end.
 
 Lemma cs_inv_involutive : forall cs, cs_inv (cs_inv cs) = cs.
@@ -914,6 +1005,36 @@ Lemma J_Asn' :
     s' = update s x (apply_upd op (s x) (eval s e)) ->
     jstep Γ (CS_pre (Sass x op e), s) (CS_post (Sass x op e), s').
 Proof. intros; subst; constructor. Qed.
+
+Lemma update_shadow : forall s x a b, update (update s x a) x b = update s x b.
+Proof.
+  intros s x a b; apply store_ext; intro y.
+  destruct (Fin.eq_dec y x) as [->|Hy].
+  - now rewrite !update_eq.
+  - now rewrite !update_neq by auto.
+Qed.
+
+Lemma update_same : forall s x, update s x (s x) = s.
+Proof.
+  intros s x; apply store_ext; intro y.
+  destruct (Fin.eq_dec y x) as [->|Hy].
+  - now rewrite update_eq.
+  - now rewrite update_neq by auto.
+Qed.
+
+(* Forms of the local rules whose saved value and post-store are stated
+   by equations. *)
+Lemma J_Local_Enter' :
+  forall Γ x e1 st e2 (s s' : store) v,
+    v = s x -> s' = update s x (eval s e1) ->
+    jstep Γ (CS_pre (Slocal x e1 st e2), s) (CS_local x v e1 (CS_pre st) e2, s').
+Proof. intros; subst; constructor. Qed.
+
+Lemma J_Local_Exit' :
+  forall Γ x v e1 st e2 (s s' : store),
+    s x = eval s e2 -> s' = update s x v ->
+    jstep Γ (CS_local x v e1 (CS_post st) e2, s) (CS_post (Slocal x e1 st e2), s').
+Proof. intros; subst; constructor; assumption. Qed.
 
 (* Meta-level reversibility, realized syntactically: one forward step of
    cs is one forward step of [cs_inv cs] taken in the opposite direction.
@@ -955,6 +1076,18 @@ Proof.
   - apply J_Ctx_Loop_Loop; apply IHjstep; wf_inv; assumption.
   - apply J_Ctx_Uncall;    apply IHjstep; wf_inv; assumption.
   - apply J_Ctx_Call;      apply IHjstep; wf_inv; assumption.
+  - (* J_Local_Enter reversed is J_Local_Exit of the inverse block *)
+    assert (Hnf : nf_expr x e1) by (wf_inv; assumption).
+    apply J_Local_Exit'.
+    + rewrite update_eq, eval_update_invariant by exact Hnf. reflexivity.
+    + rewrite update_shadow, update_same. reflexivity.
+  - (* J_Local_Exit reversed is J_Local_Enter of the inverse block *)
+    assert (Hnf : nf_expr x e2) by (wf_inv; assumption).
+    apply J_Local_Enter'.
+    + rewrite update_eq. reflexivity.
+    + rewrite eval_update_invariant by exact Hnf.
+      rewrite update_shadow, <- H, update_same. reflexivity.
+  - apply J_Ctx_Local;     apply IHjstep; wf_inv; assumption.
 Qed.
 
 Theorem inv_step_reverses :
@@ -1010,18 +1143,9 @@ Defined.
 
 Definition stmt_eq_dec (a b : stmt) : {a = b} + {a <> b}.
 Proof.
-  decide equality.
-  - apply expr_eq_dec.
-  - apply updop_eq_dec.
-  - apply Fin.eq_dec.
-  - apply expr_eq_dec.
-  - apply expr_eq_dec.
-  - apply expr_eq_dec.
-  - apply expr_eq_dec.
-  - apply (list_eq_dec (@Fin.eq_dec 10)).
-  - apply Nat.eq_dec.
-  - apply (list_eq_dec (@Fin.eq_dec 10)).
-  - apply Nat.eq_dec.
+  decide equality;
+    first [ apply expr_eq_dec | apply updop_eq_dec | apply Fin.eq_dec
+          | apply Nat.eq_dec | apply (list_eq_dec (@Fin.eq_dec 10)) ].
 Defined.
 
 (* In each context case the inner step is tried first; if the inner
@@ -1045,6 +1169,8 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
   | CS_pre (Suncall p ys) =>
       if call_ok (Γ p) ys
       then Some (CS_uncall p ys (CS_pre (inv (inst (Γ p) ys))), s) else None
+  | CS_pre (Slocal x e1 st e2) =>
+      Some (CS_local x (s x) e1 (CS_pre st) e2, update s x (eval s e1))
   | CS_post _ => None
   | CS_seq_L cs1 s2 =>
       match step_fun Γ cs1 s with
@@ -1127,6 +1253,16 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
                 | _ => None
                 end
       end
+  | CS_local x v e1 cs1 e2 =>
+      match step_fun Γ cs1 s with
+      | Some (c, t) => Some (CS_local x v e1 c e2, t)
+      | None => match cs1 with
+                | CS_post st =>
+                    if Z.eqb (s x) (eval s e2)
+                    then Some (CS_post (Slocal x e1 st e2), update s x v) else None
+                | _ => None
+                end
+      end
   end.
 
 (* Soundness: whatever step_fun computes is a step. *)
@@ -1136,7 +1272,7 @@ Lemma step_fun_sound :
 Proof.
   intros Γ cs; induction cs; intros s cs' s' H; simpl in H.
   - (* CS_pre *)
-    destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys].
+    destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2].
     + injection H as ? ?; subst; constructor.
     + injection H as ? ?; subst; constructor.
     + injection H as ? ?; subst; constructor.
@@ -1149,6 +1285,7 @@ Proof.
       injection H as ? ?; subst; constructor; exact Ok.
     + destruct (call_ok (Γ p) ys) eqn:Ok; [| discriminate].
       injection H as ? ?; subst; constructor; exact Ok.
+    + injection H as ? ?; subst; constructor.
   - (* CS_post *) discriminate.
   - (* CS_seq_L *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
@@ -1199,6 +1336,12 @@ Proof.
       destruct (stmt_eq_dec st (inv (inst (Γ p) ys))) as [-> | Hne]; [| discriminate].
       destruct (call_ok (Γ p) ys) eqn:Ok; [| discriminate].
       injection H as ? ?; subst; constructor; exact Ok.
+  - (* CS_local *)
+    destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
+    + injection H as ? ?; subst. apply J_Ctx_Local. apply IHcs; exact E.
+    + destruct cs; try discriminate.
+      destruct (Z.eqb (s x) (eval s e2)) eqn:E2; [| discriminate].
+      injection H as ? ?; subst; constructor. apply Z.eqb_eq; exact E2.
 Qed.
 
 (* Completeness: every step is computed by step_fun. *)
@@ -1356,6 +1499,60 @@ Proof.
   match goal with [ Hne : ?a <> ?a |- _ ] => apply Hne; reflexivity end.
 Qed.
 
+(* ---- 15b. local/delocal: worked examples ---- *)
+
+(*  local X0 = X1 + 1;  X2 += X0;  delocal X0 = X1 + 1
+    run from X0 = 7 (the outer X0), X1 = 3: the body sees X0 = 4, adds it
+    to X2, and the outer X0 = 7 is restored at delocal. *)
+Definition ex_local : stmt :=
+  Slocal X0 (Ebin Bplus (Evar X1) (Econst 1))
+         (Sass X2 Uadd (Evar X0))
+         (Ebin Bplus (Evar X1) (Econst 1)).
+
+Definition ex_local_pre : store := update (update zero_store X0 7) X1 3.
+Definition ex_local_post : store := update ex_local_pre X2 4.
+
+Example j_local_shadows :
+  run Γ0 10%nat (CS_pre ex_local, ex_local_pre) = (CS_post ex_local, ex_local_post).
+Proof. vm_compute. reflexivity. Qed.
+
+(* The inverse block, run forwards, undoes it. *)
+Example j_local_inverse :
+  run Γ0 10%nat (CS_pre (inv ex_local), ex_local_post)
+  = (CS_post (inv ex_local), ex_local_pre).
+Proof. vm_compute. reflexivity. Qed.
+
+(*  local X0 = 1;  X0 += 1;  delocal X0 = 1 : the delocal assertion fails
+    and the run is stuck inside the block. *)
+Definition ex_bad_delocal : stmt :=
+  Slocal X0 (Econst 1) (Sass X0 Uadd (Econst 1)) (Econst 1).
+
+Example j_delocal_mismatch_stuck :
+  run Γ0 10%nat (CS_pre ex_bad_delocal, zero_store)
+  = (CS_local X0 0 (Econst 1) (CS_post (Sass X0 Uadd (Econst 1))) (Econst 1),
+     update zero_store X0 2).
+Proof. vm_compute. reflexivity. Qed.
+
+Example j_delocal_mismatch_no_step :
+  step_fun Γ0 (CS_local X0 0 (Econst 1) (CS_post (Sass X0 Uadd (Econst 1))) (Econst 1))
+           (update zero_store X0 2) = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Why wf_cs demands x ∉ e2: with delocal X0 = X0 the assertion is
+   vacuous, and two configurations that differ only in the local value of
+   X0 step to the same one, so backward determinism fails. *)
+Example local_bwd_needs_nf :
+  let c1 := (CS_local X0 0 (Econst 0) (CS_post Sskip) (Evar X0), update zero_store X0 1) in
+  let c2 := (CS_local X0 0 (Econst 0) (CS_post Sskip) (Evar X0), update zero_store X0 2) in
+  let c  := (CS_post (Slocal X0 (Econst 0) Sskip (Evar X0)), zero_store) in
+  jstep Γ0 c1 c /\ jstep Γ0 c2 c /\ c1 <> c2.
+Proof.
+  simpl. split; [| split].
+  - apply J_Local_Exit'; [reflexivity | vm_compute; reflexivity].
+  - apply J_Local_Exit'; [reflexivity | vm_compute; reflexivity].
+  - intro H. inversion H.
+Qed.
+
 (* ================================================================= *)
 (* 16. Axiom audit                                                    *)
 (* ================================================================= *)
@@ -1419,3 +1616,14 @@ Print Assumptions j_uncall_undoes_call.
 Print Assumptions j_alias_actuals_stuck.
 Print Assumptions j_alias_global_stuck.
 Print Assumptions alias_breaks_wf.
+Print Assumptions local_enter_injective.
+Print Assumptions local_exit_injective.
+Print Assumptions update_shadow.
+Print Assumptions update_same.
+Print Assumptions J_Local_Enter'.
+Print Assumptions J_Local_Exit'.
+Print Assumptions j_local_shadows.
+Print Assumptions j_local_inverse.
+Print Assumptions j_delocal_mismatch_stuck.
+Print Assumptions j_delocal_mismatch_no_step.
+Print Assumptions local_bwd_needs_nf.

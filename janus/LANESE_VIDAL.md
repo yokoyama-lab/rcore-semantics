@@ -5,7 +5,7 @@
 > 彼らの Loop Lemma（到達可能配置上の ⇀ iff ↽）は、こちらでは後向き関係を逆関係として定義するため定義上成り立ち、内容は前向き決定性・整形式性下の後向き決定性・`inv_step_reverses` に移る。
 > 彼らの規則の正確な形（図）は本稿では読めていないため未検証として明示する。
 
-Status (2026-09-24): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 56 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-24): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 67 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -58,7 +58,7 @@ paragraph, cite the LNCS version. Their reference [15] to Makino–Yokoyama is p
 | Static inverse `I[[s]]` (Fig. 4, unverified: figure) extended with `I[[start]] = stop`, `I[[stop]] = start`; an inverse procedure `procedure id⁻¹ I[[s]]` is generated for every procedure, and CFGs are computed for it too (text L262–268) | `inv` on statements (`RULES.md` §1) and `cs_inv` on token positions; `uncall p` runs `inv (Γ p)` **forwards** (`J_Uncall_Enter`), no inverse procedure is generated | The stack-based version's `UnCallS` also "reduces to the inversion I[[Γ(id)]] of the body" (text L164–168), so the idea of running the inverse body forwards is shared. |
 | "we do not have edges for call/return (resp. uncall/return) in a CFG. The control flow for these cases will be dealt with dynamically in the corresponding transition rules" (text L258–260); forward `Call` "updates the control … with the labels from the first two statements of the procedure", `Return1` fires when the next statement is `stop` (text L303–318) | `CS_call p cs` / `CS_uncall p cs` frames: `J_Call_Enter` puts `•(Γ p)` under a `CS_call p` frame, `J_Call_Exit` removes the frame when the body reaches `(Γ p)•` | (inferred) The frame plays the role of their `call(ℓ)` stack element *and* of the return edge that the CFG lacks; the return point is the frame's position in the enclosing tree. |
 | Expression evaluation "is not reversible (but considered a one-step evaluation)" (footnote 1, text L171–172) | `eval s e : Z` total, one step, not reversible | **Same design** on this axis. This is a difference from R-CORE (`proofs.v`), where `⊙` is partial and evaluation is input-preserving; the survey warns not to lump the two RC 2026 papers together on this point (rc-survey summary, "当研究での使い道" (ii)). |
-| "procedures have neither parameters nor local variables" (text L121–124) | same: `Γ : pid -> stmt`, no parameters, no `local`/`delocal` | Same fragment. Both also omit arrays here (ours by choice; theirs has `x[e1] ⊕= e2` in Fig. 1 per text L106–107, so their fragment is slightly larger). |
+| "procedures have neither parameters nor local variables" (text L121–124) | (as of 2026-09-24) **larger**: parameters (`Γ : pid -> proc`, by reference) and `local`/`delocal` blocks (`RULES.md` §1) | Ours contains theirs in these two respects. Both also omit arrays here (ours by choice; theirs has `x[e1] ⊕= e2` in Fig. 1 per text L106–107, so their fragment is slightly larger). |
 | Sequence is right-associative, labels unique (text L177–178, L230) | `Sseq` is a binary constructor, any association; no labels | (inferred) irrelevant for us. |
 | Store σ total with default 0, "we assume that σ is defined (with value zero if not explicitly initialized)" (text L142–143) | `store := Vector.t Z 10`, total by construction | Same convention. |
 
@@ -73,7 +73,7 @@ paragraph, cite the LNCS version. Their reference [15] to Makino–Yokoyama is p
 | **Definition 1** (reachable configuration, p.197; text L586–598): obtainable from an initial ⟨ε, ℓ1, ℓ2, []⟩ by (⇀ ∪ ↽)*; "This rules out, e.g., the case of configurations ⟨σ, ℓ, ℓ′, π⟩ where ℓ and ℓ′ are not the two ends of an edge of the CFG" | not needed as a hypothesis; the only hypothesis is `wf_cs` (and `wf_penv Γ`) | See the table below. |
 | **Lemma 3 (loop lemma)** (p.198; text L601–612): for a reachable ⟨σ,ℓ1,ℓ2,π⟩, `⇀` to ⟨σ′,…⟩ iff ⟨σ′,…⟩ `↽` back. "The proof is by case distinction on the applied rule. Full details can be found in the extended version [13]." | `bstep Γ cfg cfg' := jstep Γ cfg' cfg`, so "⇀ iff ↽" holds **by definition**. The content moves to three theorems: (a) `jstep_deterministic` (forward determinism, no hypothesis); (b) `jstep_bwd_deterministic_tgt` / `bstep_deterministic` (backward determinism under `wf_cs` of the common target, **no reachability**); (c) `inv_step_reverses` / `bstep_is_fwd_of_inv` (under `wf_cs`: the backward relation is computed by running the inverted program forwards). | (inferred) In their setting the backward relation is given by a second set of rules (Fig. 14/15), so the Loop Lemma is a genuine theorem relating two definitions. In ours the second definition is the pair `inv`/`cs_inv`, and (c) is the theorem relating it to the converse; (a)+(b) are what make the converse a *function*, which the Loop Lemma alone does not give (it states existence of an inverse step, not uniqueness — the extraction does not show a determinism lemma in the conference text). |
 | Equivalence with the big-step semantics of the literature: asserted in §4 (text L613–617), proofs in the extended version | not yet (RULES.md §7 item 8) | Both developments leave this to another document; theirs to arXiv:2602.16913, ours to future work. |
-| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 56 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
+| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 67 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
 
 ### Conditions under which the Loop Lemma holds
 
@@ -98,9 +98,11 @@ New here:
   `call`/`uncall` — answering the question of their §4 for the fragment they treat (no
   parameters, no locals) minus arrays, and beyond it with call-by-reference **parameters**
   (added 2026-09-24; `RULES.md` §1): the no-aliasing rule becomes a decidable side condition
-  `call_ok` on the call rules, and the whole theorem package carries over. Whether it "scales" in their sense is answered for this
-  fragment only; arrays and locals remain open (RULES.md §7).
-- **Per-rule partial injectivity, mechanized.** The property proved is that each of the 27
+  `call_ok` on the call rules, and **`local`/`delocal`** blocks (a frame saves the shadowed
+  value; the delocal assertion is where stuckness depends on data). The whole theorem package
+  carries over. Whether it "scales" in their sense is answered for this fragment; arrays remain
+  open (RULES.md §7).
+- **Per-rule partial injectivity, mechanized.** The property proved is that each of the 30
   inference rules is a partial injection on well-formed configurations (`RULES.md` §5), not only
   that every step has an inverse step. This is the meta-level reversibility of Makino–Yokoyama,
   carried to Janus and checked in Rocq. **Correction (2026-09-24):** an earlier version of this
@@ -137,7 +139,7 @@ primitives: a module type `REV_PRIM` whose `pstep` is *assumed* deterministic an
 
 | | `RevSmallStep.v` | `RevLoopLemma.v` | `janus/janus.v` (this directory) |
 |---|---|---|---|
-| Configuration | runtime statement `rs` + state (context-based, after Lami–Lanese–Stefani RC 2024) | control stack `list rs` + state + **history** `list ev`, one event per step (after Lanese–Vidal) | `cont_stmt` (whole program, one token) + store; **no history** |
+| Configuration | runtime statement `rs` + state (context-based, after Lami–Lanese–Stefani RC 2024) | control stack `list rs` + state + **history** `list ev`, one event per step (after Lanese–Vidal) | `cont_stmt` (whole program, one token) + store; **no history** (a `local` frame saves one value per active block) |
 | Backward determinism | **refuted**: `step_not_backward_deterministic` (L344), `exit_assertion_collapses` (L358) | yes, no hypothesis: `fstep_backward_det` (L239), via `loop_lemma` (L180) | yes, under `wf_cs` (decidable on the configuration): `jstep_bwd_deterministic`, `bstep_deterministic` |
 | Backward relation | — | `bstep`, defined separately; reads the history | the converse of `jstep`; `bstep_is_fwd_of_inv`: it *is* forward `jstep` on `cs_inv` |
 | Where injectivity of assignment comes from | axiom of the module type (`pstep_rev`) | same | proved for concrete `+= -= ^=` from `x ∉ e` (`asn_step_injective`); `x ^= x` shows `wf_cs` cannot be dropped |
@@ -146,7 +148,8 @@ primitives: a module type `REV_PRIM` whose `pstep` is *assumed* deterministic an
 So the accurate statement of what `janus/janus.v` adds is:
 
 - a small-step semantics for this Janus core that is backward deterministic **without storing a
-  history** — the configuration size does not grow with the run, unlike `RevLoopLemma.v`, where
+  history** — the configuration grows with nesting and recursion depth (call and local frames)
+  but not with the length of the run, unlike `RevLoopLemma.v`, where
   the history is what restores the information that `RevSmallStep.v` shows is lost;
 - the obstruction exhibited in `RevSmallStep.v` is avoided by representation alone: the
   sequencing collapse cannot occur because `CS_seq_L`/`CS_seq_R` keep the other component, and the
@@ -158,6 +161,9 @@ So the accurate statement of what `janus/janus.v` adds is:
 
 Not new relative to PyJanus: the language shape, the inverter on statements, the existence of a
 small-step semantics for it, and a Loop Lemma for a Janus-shaped language (history-based).
+PyJanus's frame-based kernel `RevFrame` (big-step) already has call-by-reference parameters and
+`local`/`delocal`; what is new here for those two features is only their small-step, history-free
+treatment.
 
 ---
 
