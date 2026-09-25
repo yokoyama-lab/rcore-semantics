@@ -4,7 +4,7 @@
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-09-25): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 80 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-26): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 97 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -330,6 +330,11 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `j_delocal_mismatch_stuck`, `j_delocal_mismatch_no_step`, `local_bwd_needs_nf` (Examples) | a failed delocal is stuck; `delocal x = x` breaks backward determinism, so `wf_cs` must require `x ∉ e2` | — |
 | `aasn_step_injective`, `eval_aupdate_invariant`, `eval_aagree`, `aupdate_cancel` | partial injectivity of rule 31; an update of `a` does not change an `a`-free expression; undoing the cell update | — |
 | `j_array_run`, `j_array_inverse`, `j_array_out_of_bounds_stuck`, `aasn_bwd_needs_anf` (Examples) | `X0 += 3; A0[X0] += 5; A0[X0+1] ^= A0[X0]` and its inverse; index 8 and −1 are stuck; `a ∉ e2` is necessary | — |
+| `exec`, `loop_from`, `loop_until` | big-step semantics (mutual inductive; the two loop relations start at the from-point and the until-point) | `ds` (big-step of the paper) |
+| `exec_iff_jstar` | `exec Γ s σ σ' <-> jstar Γ (•s, σ) (s•, σ')` — the big-step semantics is exactly the runs of `jstep` from entry to exit. `→` by mutual induction (`exec_jstar_mut`, lifting runs through contexts with `jstar_lift`); `←` via the remaining-execution relation `cexec` on token positions, preserved backwards by every step (`cexec_step_back`, using `top_step`) | `semantic_equivalence` (R-CORE, ds ↔ ss) |
+| `exec_deterministic` | big-step determinism, derived from `jstep_deterministic` and terminality of `s•` (`jstar_deterministic_terminal`) | `ds_deterministic` |
+| `exec_inv`, `exec_inv_iff` | `wf_penv Γ -> wf_stmt s -> (exec Γ s σ σ' <-> exec Γ (inv s) σ' σ)` — correctness of the program inverter for the big-step semantics, **derived** from step-level reversibility: a run reverses position by position into a run of the inverse (`jstar_inv`, from `inv_step_reverses` and `wf_cs_step_preserved`) | — |
+| `run_jstar`, `exec_call_by_reference`, `exec_call_inverted` | the bounded runner produces `jstar` runs; a call-by-reference program as a big-step judgement, and its inverse via `exec_inv` | — |
 | `nf_expr_dec`, `anf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` | decision procedures | `nf_expr_dec` (L419), `wf_cmd_dec` (L444), `wf_cc_dec` (L4365) |
 
 Why `wf_penv Γ` appears where `proofs.v` had nothing: `J_Call_Enter` and `J_Uncall_Enter` bring
@@ -375,11 +380,11 @@ Independent of the language extensions:
    (`flow⁻¹(s) = flow(I[[s]])`) can be stated on our side and compared rule by rule with
    `inv_step_reverses` (`LANESE_VIDAL.md` §3); the comparison needs the paper's rule figures
    (`LANESE_VIDAL.md` §5).
-8. **A big-step semantics and its equivalence with `jstep`**, as `semantic_equivalence` does for
-   R-CORE and as Lanese–Vidal claim in their §4 for the PC semantics.
+8. ~~**A big-step semantics and its equivalence with `jstep`**~~ — **done 2026-09-26**
+   (`exec_iff_jstar`; §6).
 7. **Connecting to the paper's `fss` layer**: a labelled-flowchart (CFG) semantics of Janus in the
    style of `fstep`/`pstep`, and the analogue of `semantic_equivalence_ss_fss`. This is also where
    a formal comparison with the Lanese–Vidal program-counter semantics would live; see
    `LANESE_VIDAL.md`.
-8. **Big-step semantics and `semantic_equivalence`** for the Janus core, so Theorem 1 of the
-   paper has a Janus counterpart.
+8. ~~**Big-step semantics and `semantic_equivalence`**~~ — **done 2026-09-26** (`exec_iff_jstar`,
+   with `exec_deterministic` and `exec_inv` as corollaries).

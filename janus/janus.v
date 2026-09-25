@@ -30,6 +30,8 @@
         via the syntactic inverter   [inv_step_reverses_iff],
                                      [bstep_is_fwd_of_inv]
       executable semantics           [step_fun_correct]
+      big-step equivalence           [exec_iff_jstar], with
+                                     [exec_deterministic], [exec_inv_iff]
 
   Scope.  This is Janus with arrays (a[e1] op= e2, four global arrays of
   fixed length) and WITHOUT the division-like operators / and % (whose
@@ -1614,6 +1616,333 @@ Example step_fun_post_is_none :
 Proof. reflexivity. Qed.
 
 (* ================================================================= *)
+(* 14a. Big-step semantics and its equivalence with jstep             *)
+(* ================================================================= *)
+
+(* The natural big-step semantics of this Janus core.  A loop is
+   described by two auxiliary relations: [loop_from] starts at the
+   from-point (just before s1), [loop_until] at the until-point (just
+   after s1), mirroring CS_loop_from / CS_loop_until. *)
+Inductive exec (Γ : penv) : stmt -> store -> store -> Prop :=
+  | E_Skip : forall s, exec Γ Sskip s s
+  | E_Asn : forall x op e s,
+      exec Γ (Sass x op e) s (update s x (apply_upd op (s x) (eval s e)))
+  | E_Seq : forall a b s1 s2 s3,
+      exec Γ a s1 s2 -> exec Γ b s2 s3 -> exec Γ (Sseq a b) s1 s3
+  | E_IfT : forall e1 a b e2 s s',
+      eval s e1 <> 0 -> exec Γ a s s' -> eval s' e2 <> 0 ->
+      exec Γ (Sif e1 a b e2) s s'
+  | E_IfF : forall e1 a b e2 s s',
+      eval s e1 = 0 -> exec Γ b s s' -> eval s' e2 = 0 ->
+      exec Γ (Sif e1 a b e2) s s'
+  | E_Loop : forall e1 a b e2 s s',
+      eval s e1 <> 0 -> loop_from Γ e1 a b e2 s s' ->
+      exec Γ (Sloop e1 a b e2) s s'
+  | E_Call : forall p ys s s',
+      call_ok (Γ p) ys = true -> exec Γ (inst (Γ p) ys) s s' ->
+      exec Γ (Scall p ys) s s'
+  | E_Uncall : forall p ys s s',
+      call_ok (Γ p) ys = true -> exec Γ (inv (inst (Γ p) ys)) s s' ->
+      exec Γ (Suncall p ys) s s'
+  | E_Local : forall x e1 st e2 s s1,
+      exec Γ st (update s x (eval s e1)) s1 -> s1 x = eval s1 e2 ->
+      exec Γ (Slocal x e1 st e2) s (update s1 x (s x))
+  | E_AAsn : forall a e1 op e2 s i,
+      idx (eval s e1) = Some i ->
+      exec Γ (Saass a e1 op e2) s
+             (aupdate s a i (apply_upd op (aget s a i) (eval s e2)))
+with loop_from (Γ : penv) : expr -> stmt -> stmt -> expr -> store -> store -> Prop :=
+  | LF : forall e1 a b e2 s s1 s',
+      exec Γ a s s1 -> loop_until Γ e1 a b e2 s1 s' -> loop_from Γ e1 a b e2 s s'
+with loop_until (Γ : penv) : expr -> stmt -> stmt -> expr -> store -> store -> Prop :=
+  | LU_Exit : forall e1 a b e2 s,
+      eval s e2 <> 0 -> loop_until Γ e1 a b e2 s s
+  | LU_Iter : forall e1 a b e2 s s2 s',
+      eval s e2 = 0 -> exec Γ b s s2 -> eval s2 e1 = 0 ->
+      loop_from Γ e1 a b e2 s2 s' -> loop_until Γ e1 a b e2 s s'.
+
+Scheme exec_mind := Induction for exec Sort Prop
+  with loop_from_mind := Induction for loop_from Sort Prop
+  with loop_until_mind := Induction for loop_until Sort Prop.
+Combined Scheme exec_mutind from exec_mind, loop_from_mind, loop_until_mind.
+
+(* Reflexive-transitive closure of jstep. *)
+Inductive jstar (Γ : penv) : cont_stmt * store -> cont_stmt * store -> Prop :=
+  | JS_refl : forall cfg, jstar Γ cfg cfg
+  | JS_step : forall cfg1 cfg2 cfg3,
+      jstep Γ cfg1 cfg2 -> jstar Γ cfg2 cfg3 -> jstar Γ cfg1 cfg3.
+
+Lemma jstar_trans :
+  forall Γ c1 c2 c3, jstar Γ c1 c2 -> jstar Γ c2 c3 -> jstar Γ c1 c3.
+Proof.
+  intros Γ c1 c2 c3 H; induction H; intros H'; auto.
+  eapply JS_step; eauto.
+Qed.
+
+Lemma jstar_one : forall Γ c1 c2, jstep Γ c1 c2 -> jstar Γ c1 c2.
+Proof. intros; eapply JS_step; [eassumption | apply JS_refl]. Qed.
+
+(* Runs lift through every context that lifts single steps. *)
+Lemma jstar_lift :
+  forall Γ (F : cont_stmt -> cont_stmt),
+    (forall c s c' s', jstep Γ (c, s) (c', s') -> jstep Γ (F c, s) (F c', s')) ->
+    forall cfg cfg', jstar Γ cfg cfg' ->
+    jstar Γ (F (fst cfg), snd cfg) (F (fst cfg'), snd cfg').
+Proof.
+  intros Γ F HF cfg cfg' H; induction H.
+  - apply JS_refl.
+  - destruct cfg1 as [c1 s1], cfg2 as [c2 s2].
+    eapply JS_step; [apply HF; exact H | exact IHjstar].
+Qed.
+
+(* Lift the run of statement st (a hypothesis) through the context C. *)
+Ltac lift st C name :=
+  match goal with
+  | [ H : jstar _ (CS_pre st, _) (CS_post st, _) |- _ ] =>
+      pose proof (@jstar_lift _ C ltac:(intros; constructor; assumption) _ _ H) as name;
+      simpl in name
+  end.
+
+(* Completeness: every big-step derivation is a run of jstep from the
+   entry of the statement to its exit. *)
+Theorem exec_jstar_mut :
+  forall Γ,
+    (forall st s s', exec Γ st s s' -> jstar Γ (CS_pre st, s) (CS_post st, s'))
+ /\ (forall e1 a b e2 s s', loop_from Γ e1 a b e2 s s' ->
+       jstar Γ (CS_loop_from e1 a b e2, s) (CS_post (Sloop e1 a b e2), s'))
+ /\ (forall e1 a b e2 s s', loop_until Γ e1 a b e2 s s' ->
+       jstar Γ (CS_loop_until e1 a b e2, s) (CS_post (Sloop e1 a b e2), s')).
+Proof.
+  intros Γ.
+  apply exec_mutind; intros.
+  - apply jstar_one; constructor.
+  - apply jstar_one; constructor.
+  - (* Seq *)
+    lift a (fun c => CS_seq_L c b) La. lift b (fun c => CS_seq_R a c) Lb.
+    eapply JS_step; [apply J_Seq_Enter |].
+    eapply jstar_trans; [exact La |].
+    eapply JS_step; [apply J_Seq_Mid |].
+    eapply jstar_trans; [exact Lb |].
+    apply jstar_one; apply J_Seq_Exit.
+  - lift a (fun c => CS_if_then e1 c b e2) L1.
+    eapply JS_step; [apply J_If_True; assumption |].
+    eapply jstar_trans; [exact L1 |].
+    apply jstar_one; apply J_Fi_True; assumption.
+  - lift b (fun c => CS_if_else e1 a c e2) L1.
+    eapply JS_step; [apply J_If_False; assumption |].
+    eapply jstar_trans; [exact L1 |].
+    apply jstar_one; apply J_Fi_False; assumption.
+  - eapply JS_step; [apply J_Loop_Enter; assumption | assumption].
+  - lift (inst (Γ p) ys) (fun c => CS_call p ys c) L1.
+    eapply JS_step; [apply J_Call_Enter; assumption |].
+    eapply jstar_trans; [exact L1 |].
+    apply jstar_one; apply J_Call_Exit; assumption.
+  - lift (inv (inst (Γ p) ys)) (fun c => CS_uncall p ys c) L1.
+    eapply JS_step; [apply J_Uncall_Enter; assumption |].
+    eapply jstar_trans; [exact L1 |].
+    apply jstar_one; apply J_Uncall_Exit; assumption.
+  - lift st (fun c => CS_local x (s x) e1 c e2) L1.
+    eapply JS_step; [apply J_Local_Enter |].
+    eapply jstar_trans; [exact L1 |].
+    apply jstar_one; apply J_Local_Exit; assumption.
+  - apply jstar_one; constructor; assumption.
+  - (* LF *)
+    lift a (fun c => CS_loop_do e1 c b e2) L1.
+    eapply JS_step; [apply J_Loop_Do |].
+    eapply jstar_trans; [exact L1 |].
+    eapply JS_step; [apply J_Loop_DoDone | assumption].
+  - apply jstar_one; apply J_Loop_Exit; assumption.
+  - (* LU_Iter *)
+    lift b (fun c => CS_loop_loop e1 a c e2) L1.
+    eapply JS_step; [apply J_Loop_Iter1; assumption |].
+    eapply jstar_trans; [exact L1 |].
+    eapply JS_step; [apply J_Loop_Iter2; assumption | assumption].
+Qed.
+
+(* The statement a controlled statement is a position in. *)
+Fixpoint top (cs : cont_stmt) : stmt :=
+  match cs with
+  | CS_pre st                 => st
+  | CS_post st                => st
+  | CS_seq_L c b              => Sseq (top c) b
+  | CS_seq_R a c              => Sseq a (top c)
+  | CS_if_then e1 c b e2      => Sif e1 (top c) b e2
+  | CS_if_else e1 a c e2      => Sif e1 a (top c) e2
+  | CS_loop_from e1 a b e2    => Sloop e1 a b e2
+  | CS_loop_do e1 c b e2      => Sloop e1 (top c) b e2
+  | CS_loop_until e1 a b e2   => Sloop e1 a b e2
+  | CS_loop_loop e1 a c e2    => Sloop e1 a (top c) e2
+  | CS_call p ys _            => Scall p ys
+  | CS_uncall p ys _          => Suncall p ys
+  | CS_local x _ e1 c e2      => Slocal x e1 (top c) e2
+  end.
+
+(* The remaining execution from a token position: [cexec Γ cs s s'] says
+   that from (cs, s) the program reaches the exit of the whole statement
+   around the token with store s'. *)
+Inductive cexec (Γ : penv) : cont_stmt -> store -> store -> Prop :=
+  | CX_pre : forall st s s', exec Γ st s s' -> cexec Γ (CS_pre st) s s'
+  | CX_post : forall st s, cexec Γ (CS_post st) s s
+  | CX_seq_L : forall cs b s s1 s2,
+      cexec Γ cs s s1 -> exec Γ b s1 s2 -> cexec Γ (CS_seq_L cs b) s s2
+  | CX_seq_R : forall a cs s s',
+      cexec Γ cs s s' -> cexec Γ (CS_seq_R a cs) s s'
+  | CX_if_then : forall e1 cs b e2 s s',
+      cexec Γ cs s s' -> eval s' e2 <> 0 -> cexec Γ (CS_if_then e1 cs b e2) s s'
+  | CX_if_else : forall e1 a cs e2 s s',
+      cexec Γ cs s s' -> eval s' e2 = 0 -> cexec Γ (CS_if_else e1 a cs e2) s s'
+  | CX_loop_from : forall e1 a b e2 s s',
+      loop_from Γ e1 a b e2 s s' -> cexec Γ (CS_loop_from e1 a b e2) s s'
+  | CX_loop_do : forall e1 cs b e2 s s1 s',
+      cexec Γ cs s s1 -> loop_until Γ e1 (top cs) b e2 s1 s' ->
+      cexec Γ (CS_loop_do e1 cs b e2) s s'
+  | CX_loop_until : forall e1 a b e2 s s',
+      loop_until Γ e1 a b e2 s s' -> cexec Γ (CS_loop_until e1 a b e2) s s'
+  | CX_loop_loop : forall e1 a cs e2 s s2 s',
+      cexec Γ cs s s2 -> eval s2 e1 = 0 -> loop_from Γ e1 a (top cs) e2 s2 s' ->
+      cexec Γ (CS_loop_loop e1 a cs e2) s s'
+  | CX_call : forall p ys cs s s',
+      cexec Γ cs s s' -> cexec Γ (CS_call p ys cs) s s'
+  | CX_uncall : forall p ys cs s s',
+      cexec Γ cs s s' -> cexec Γ (CS_uncall p ys cs) s s'
+  | CX_local : forall x v e1 cs e2 s s1,
+      cexec Γ cs s s1 -> s1 x = eval s1 e2 ->
+      cexec Γ (CS_local x v e1 cs e2) s (update s1 x v).
+
+Local Hint Constructors exec loop_from loop_until cexec : core.
+
+Ltac cx_inv :=
+  repeat match goal with
+  | [ H : cexec _ (CS_pre _) _ _ |- _ ]            => inversion H; subst; clear H
+  | [ H : cexec _ (CS_post _) _ _ |- _ ]           => inversion H; subst; clear H
+  | [ H : cexec _ (CS_seq_L _ _) _ _ |- _ ]        => inversion H; subst; clear H
+  | [ H : cexec _ (CS_seq_R _ _) _ _ |- _ ]        => inversion H; subst; clear H
+  | [ H : cexec _ (CS_if_then _ _ _ _) _ _ |- _ ]  => inversion H; subst; clear H
+  | [ H : cexec _ (CS_if_else _ _ _ _) _ _ |- _ ]  => inversion H; subst; clear H
+  | [ H : cexec _ (CS_loop_from _ _ _ _) _ _ |- _ ]  => inversion H; subst; clear H
+  | [ H : cexec _ (CS_loop_do _ _ _ _) _ _ |- _ ]    => inversion H; subst; clear H
+  | [ H : cexec _ (CS_loop_until _ _ _ _) _ _ |- _ ] => inversion H; subst; clear H
+  | [ H : cexec _ (CS_loop_loop _ _ _ _) _ _ |- _ ]  => inversion H; subst; clear H
+  | [ H : cexec _ (CS_call _ _ _) _ _ |- _ ]       => inversion H; subst; clear H
+  | [ H : cexec _ (CS_uncall _ _ _) _ _ |- _ ]     => inversion H; subst; clear H
+  | [ H : cexec _ (CS_local _ _ _ _ _) _ _ |- _ ]  => inversion H; subst; clear H
+  end; simpl in *.
+
+(* A step moves the token inside a fixed statement. *)
+Lemma top_step :
+  forall Γ cs s cs' s', jstep Γ (cs, s) (cs', s') -> top cs' = top cs.
+Proof.
+  intros Γ cs s cs' s' H.
+  change (top (fst (cs', s')) = top (fst (cs, s))).
+  generalize dependent H. generalize (cs, s) (cs', s'). intros c c' H.
+  induction H; simpl in *; congruence.
+Qed.
+
+(* Every step preserves the remaining execution backwards. *)
+Lemma cexec_step_back :
+  forall Γ cfg cfg', jstep Γ cfg cfg' ->
+    forall sf, cexec Γ (fst cfg') (snd cfg') sf -> cexec Γ (fst cfg) (snd cfg) sf.
+Proof.
+  intros Γ cfg cfg' H; induction H; intros sf Hc; simpl in *; cx_inv;
+    try (match goal with
+         | [ Hs : jstep _ (?c, _) (?c', _), Hl : context [top ?c'] |- _ ] =>
+             rewrite (top_step Hs) in Hl
+         end);
+    eauto 7.
+Qed.
+
+Lemma jstar_cexec :
+  forall Γ cfg cfg', jstar Γ cfg cfg' ->
+    forall sf, cexec Γ (fst cfg') (snd cfg') sf -> cexec Γ (fst cfg) (snd cfg) sf.
+Proof.
+  intros Γ cfg cfg' H; induction H; intros sf Hc; auto.
+  eapply cexec_step_back; eauto.
+Qed.
+
+(* Soundness: a run from the entry to the exit of a statement is a
+   big-step derivation. *)
+Theorem jstar_exec :
+  forall Γ st s s', jstar Γ (CS_pre st, s) (CS_post st, s') -> exec Γ st s s'.
+Proof.
+  intros Γ st s s' H.
+  pose proof (jstar_cexec H (CX_post Γ st s')) as Hc; simpl in Hc.
+  inversion Hc; subst; assumption.
+Qed.
+
+Theorem exec_iff_jstar :
+  forall Γ st s s', exec Γ st s s' <-> jstar Γ (CS_pre st, s) (CS_post st, s').
+Proof.
+  intros Γ st s s'; split.
+  - intro H. exact (proj1 (exec_jstar_mut Γ) st s s' H).
+  - apply jstar_exec.
+Qed.
+
+(* ---- Corollaries: big-step properties from the small-step theorems ---- *)
+
+Lemma jstar_deterministic_terminal :
+  forall Γ c c1 c2, jstar Γ c c1 -> jstar Γ c c2 ->
+    (forall d, ~ jstep Γ c1 d) -> (forall d, ~ jstep Γ c2 d) -> c1 = c2.
+Proof.
+  intros Γ c c1 c2 H1; revert c2; induction H1; intros c2 H2 T1 T2.
+  - inversion H2; subst; [reflexivity | exfalso; eapply T1; eassumption].
+  - inversion H2; subst.
+    + exfalso; eapply T2; eassumption.
+    + match goal with
+      | [ Ha : jstep _ cfg1 cfg2, Hb : jstep _ cfg1 ?c' |- _ ] =>
+          pose proof (jstep_deterministic Ha Hb) as E; subst
+      end.
+      apply IHjstar; assumption.
+Qed.
+
+(* Big-step determinism, as a corollary of forward determinism. *)
+Theorem exec_deterministic :
+  forall Γ st s s1 s2, exec Γ st s s1 -> exec Γ st s s2 -> s1 = s2.
+Proof.
+  intros Γ st s s1 s2 H1 H2.
+  apply exec_iff_jstar in H1, H2.
+  assert (E : (CS_post st, s1) = (CS_post st, s2)).
+  { eapply jstar_deterministic_terminal; [exact H1 | exact H2 | |];
+      intros d Hd; eapply no_step_from_post; exact Hd. }
+  injection E; auto.
+Qed.
+
+(* A run reverses, position by position, into a run of the inverse. *)
+Lemma jstar_inv :
+  forall Γ, wf_penv Γ ->
+    forall cfg cfg', jstar Γ cfg cfg' -> wf_cs (fst cfg) ->
+      jstar Γ (cs_inv (fst cfg'), snd cfg') (cs_inv (fst cfg), snd cfg).
+Proof.
+  intros Γ HΓ cfg cfg' H; induction H; intros Hwf.
+  - apply JS_refl.
+  - destruct cfg1 as [c1 s1], cfg2 as [c2 s2]; simpl in *.
+    eapply jstar_trans.
+    + apply IHjstar. eapply wf_cs_step_preserved; eassumption.
+    + apply jstar_one. eapply inv_step_reverses; eassumption.
+Qed.
+
+(* Correctness of the program inverter for the big-step semantics, as a
+   corollary of step-level (meta-level) reversibility. *)
+Theorem exec_inv :
+  forall Γ st s s', wf_penv Γ -> wf_stmt st ->
+    exec Γ st s s' -> exec Γ (inv st) s' s.
+Proof.
+  intros Γ st s s' HΓ Hwf H.
+  apply exec_iff_jstar in H.
+  apply jstar_exec.
+  exact (jstar_inv HΓ H (wf_cs_pre Hwf)).
+Qed.
+
+Theorem exec_inv_iff :
+  forall Γ st s s', wf_penv Γ -> wf_stmt st ->
+    (exec Γ st s s' <-> exec Γ (inv st) s' s).
+Proof.
+  intros Γ st s s' HΓ Hwf; split; intro H.
+  - apply exec_inv; assumption.
+  - rewrite <- (inv_involutive st).
+    apply exec_inv; [assumption | apply wf_stmt_inv; assumption | assumption].
+Qed.
+
+(* ================================================================= *)
 (* 15. Embedding sanity: running a small Janus program                *)
 (* ================================================================= *)
 
@@ -1836,6 +2165,32 @@ Proof.
   - intro H. inversion H.
 Qed.
 
+(* ---- 15d. Big-step examples, via the verified stepper ---- *)
+
+Lemma run_jstar : forall Γ n cfg, jstar Γ cfg (run Γ n cfg).
+Proof.
+  intros Γ n; induction n as [|n IH]; intros [c s]; simpl.
+  - apply JS_refl.
+  - destruct (step_fun Γ c s) as [[c' s']|] eqn:E.
+    + eapply JS_step; [apply step_fun_sound; exact E | apply IH].
+    + apply JS_refl.
+Qed.
+
+(* call-by-reference, as a big-step judgement *)
+Example exec_call_by_reference :
+  exec Γ1 ex_call zero_store (update (update zero_store X2 5) X3 5).
+Proof.
+  apply exec_iff_jstar. rewrite <- j_call_by_reference. apply run_jstar.
+Qed.
+
+(* and backwards, through exec_inv *)
+Example exec_call_inverted :
+  exec Γ1 (inv ex_call) (update (update zero_store X2 5) X3 5) zero_store.
+Proof.
+  apply exec_inv; [exact wf_penv_Γ1 | | exact exec_call_by_reference].
+  repeat constructor; intro H; discriminate H.
+Qed.
+
 (* ================================================================= *)
 (* 16. Axiom audit                                                    *)
 (* ================================================================= *)
@@ -1923,3 +2278,20 @@ Print Assumptions j_array_run.
 Print Assumptions j_array_inverse.
 Print Assumptions j_array_out_of_bounds_stuck.
 Print Assumptions aasn_bwd_needs_anf.
+Print Assumptions exec_jstar_mut.
+Print Assumptions top_step.
+Print Assumptions jstar_trans.
+Print Assumptions jstar_one.
+Print Assumptions jstar_lift.
+Print Assumptions cexec_step_back.
+Print Assumptions jstar_cexec.
+Print Assumptions jstar_exec.
+Print Assumptions exec_iff_jstar.
+Print Assumptions jstar_deterministic_terminal.
+Print Assumptions exec_deterministic.
+Print Assumptions jstar_inv.
+Print Assumptions exec_inv.
+Print Assumptions exec_inv_iff.
+Print Assumptions run_jstar.
+Print Assumptions exec_call_by_reference.
+Print Assumptions exec_call_inverted.

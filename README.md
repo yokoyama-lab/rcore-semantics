@@ -282,7 +282,7 @@ technique scales to Janus; for this fragment the answer is yes: the 31-rule
 relation `jstep Γ` is deterministic in both directions under
 well-formedness, and the syntactic inverter reverses every step. The file
 is self-contained (it does not import `proofs.v`), axiom-free, and audited
-by the same script (80 results).
+by the same script (97 results).
 
 Prior small-step work on the same language shape is in the Rocq
 development of [`yokoyama-lab/PyJanus`](https://github.com/yokoyama-lab/PyJanus)
@@ -300,6 +300,8 @@ obtained as the forward one on the inverted configuration; see
 | Well-formedness is invariant under steps (both directions) | `wf_cs_step_preserved`, `wf_cs_step_reflected` |
 | A forward step of `s` is a backward step of `inv s` at the mirrored token position | `inv_step_reverses`, `bstep_is_fwd_of_inv` |
 | The transition relation is executable | `step_fun_correct` |
+| The big-step semantics is exactly the entry-to-exit runs of `jstep` | `exec_iff_jstar` |
+| Big-step determinism and inverter correctness, derived from the small-step theorems | `exec_deterministic`, `exec_inv_iff` |
 
 The rule table with the per-rule injectivity argument is
 [`janus/RULES.md`](janus/RULES.md); the comparison with the PC-based
