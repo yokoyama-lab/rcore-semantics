@@ -17,6 +17,11 @@ control-token semantics `jstep Γ` of `janus/janus.v` described in `RULES.md`, w
 R-CORE semantics of Makino & Yokoyama, RC 2026, LNCS 16626, pp. 201–218,
 doi:10.1007/978-3-032-30839-9_12 (`proofs.v`).
 
+**Update 2026-09-26.** The full texts have since been read: the LNCS chapter (RC 2026
+proceedings, PDF pp. 192–208 = printed pp. 184–200) and the extended version arXiv:2602.16913
+(29 pp.). The novelty check against them is §4b; tags (text Lnn) below still refer to the older
+extraction.
+
 **Evidence base, and how each claim is tagged.** arxiv.org and the publisher are unreachable
 from here, and the PDF was not opened. What was read:
 
@@ -167,6 +172,53 @@ treatment.
 
 ---
 
+## 4b. Novelty check against the full texts (2026-09-26)
+
+Method (`novelty-check`): the core words were fixed **before** reading, then counted
+(case-insensitive substrings) in the full text of each work, and every non-zero hit was read in
+context. Sources: RC 2026 proceedings from Paperpile (chapter at PDF pp. 192–208); the extended
+version fetched from arxiv.org (the abstract page gives *A Reversible Semantics for Janus*,
+Lanese & Vidal, submitted 2026-02-18); the RC 2024 proceedings from Paperpile (Lami–Lanese–Stefani
+at PDF pp. 109–127, printed pp. 105–123); Paolini–Piccolo–Roversi from LIPIcs (open access,
+21 pp.).
+
+| Word | LV RC 2026 | LV arXiv | LLS RC 2024 | PPR TYPES 2015 |
+|---|---|---|---|---|
+| `token` | 0 | 0 | 0 | 2 (tokens on wires in categorical diagrams; unrelated) |
+| `mechani` / `coq` / `rocq` / `proof assistant` | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 1 / 7 / 0 / 4 (Matita; big-step and denotational only, `small-step` 0) |
+| `determinis` | 1 (Janus is deterministic, intro) | 1 (same) | 1 (same) | 11 |
+| `big-step` | 5 | 8 | 28 | 7 |
+| `history` | 2 | 2 | 2 | 0 |
+| `R-CORE` | 1 (the paragraph below) | 0 | 0 | 0 |
+
+Coverage: **full text** for all four. PyJanus `coq/*.v`: `token` 0. Forward citations: Semantic
+Scholar lists 0 citing papers for arXiv:2602.16913 and does not index the RC 2026 DOI; an arXiv
+search for `Janus` in cs.PL/cs.LO returns nothing newer than Lanese–Vidal itself.
+
+What the texts say, by claim:
+
+| Our claim | Finding | Verdict |
+|---|---|---|
+| Control-token small-step semantics **for Janus** | LV RC 2026 (L506–512): R-CORE "use[s] a • inside the program … Their technique allows for a simpler development, hence raising the question of whether it scales to more complex languages like Janus. This is an interesting direction for future work." `token` 0 everywhere else. | **new**; it answers a question they posed in print |
+| Mechanized (Rocq, axiom-free) | LV and LLS: 0 hits for every mechanization word. PPR is mechanized (Matita), but big-step and denotational only. PyJanus is mechanized, but uses context-based or history-based small-step. | **new** for a small-step Janus semantics without a history |
+| Backward determinism **without a history** | LV argue the same themselves (RC 2026 L72–77: a history "is not strictly necessary when the considered language is reversible"); their PC semantics carries none. | **not new against LV**; new only against PyJanus `RevLoopLemma.v`. Do not claim "history-free" as a contribution against LV |
+| … under well-formedness **only, no reachability** | LV arXiv Lemma 5 (Loop Lemma) holds for *reachable* configurations (Definition 4, L1714–1727). | **new** (ours: `wf_cs`, decidable on the configuration) |
+| Parameters, `local`/`delocal` | LV arXiv L146: "procedures have neither parameters nor local variables"; LLS L106 likewise; LV RC 2026 L500 lists locals as future work. | **new** against LV/LLS; PyJanus `RevFrame` has both, but big-step only |
+| Arrays | LV has `x[e1] ⊕= e2` (arXiv L133, L290, rule `AssArrS` L372). | **not new**, needed for parity |
+| Equivalence with a big-step semantics | LV arXiv Theorem 1 (L685): `ε ⊢ s ⇓ σ iff ⟨ε, s, []⟩ →* ⟨σ, skip, []⟩` for their **stack** semantics, a paper proof, from the empty store, "when the program terminates without errors" (L469). LLS Theorem 1 is similar (paper). | **not new as a statement**; new: mechanized, for a token semantics, from any store |
+| Big-step inverter correctness | Known: LLS L149 cite it as Theorem 4 of Yokoyama–Axelsen–Glück 2008 (`σ ⊢ s ⇓ σ′ iff σ′ ⊢ I⟦s⟧ ⇓ σ`); mechanized by PPR (Matita) and PyJanus (`exec_iff`). LV's Lemma 4 is the static `flow⁻¹(s) = flow(I⟦s⟧)`. | **not new as a statement**; new only as a *derivation* from step-level reversibility (`exec_inv` via `jstar_inv`) |
+
+Consequently, a paper may say, citing these rows: (i) a control-token semantics for Janus, which
+answers the question of LV RC 2026 §5; (ii) the first mechanization of a history-free reversible
+small-step semantics for Janus; (iii) backward determinism under a decidable syntactic condition
+instead of reachability; (iv) parameters and locals beyond the LV/LLS fragment; (v) mechanized
+big-step equivalence, with big-step inverter correctness as a corollary. It must **not** present
+history-freedom itself, arrays, the equivalence statement or inverter correctness as new. The scope
+of (ii) is "among the four works above, PyJanus, and arXiv cs.PL/cs.LO"; the ACM DL and later
+conference proceedings were not searched.
+
+---
+
 ## 5. Open items that need the paper's figures or the extended version
 
 1. **Exact rule shapes** (Fig. 11, 12, 14, 15). The extraction has only the prose around them.
@@ -201,9 +253,12 @@ treatment.
 
 - Ivan Lanese, Germán Vidal. *A Reversible Semantics for Janus.* In C. Aubert, L. Roversi (eds.),
   Reversible Computation, RC 2026, LNCS 16626, pp. 184–200. Springer, 2026.
-  doi:10.1007/978-3-032-30839-9_11. Extended version: arXiv:2602.16913 (v2, 2026-02-26; not
-  read here — the survey reports its Related Work lacks the R-CORE paragraph, rc-survey
-  `docs/forward/core.md` L275–290).
+  doi:10.1007/978-3-032-30839-9_11. Extended version: arXiv:2602.16913 (submitted 2026-02-18;
+  full text read 2026-09-26, 29 pp.; its Related Work indeed has no R-CORE paragraph: `R-CORE`
+  occurs 0 times, as the survey reported).
+- Pietro Lami, Ivan Lanese, Jean-Bernard Stefani. *A Small-Step Semantics for Janus.* RC 2024 —
+  full text read 2026-09-26 (RC 2024 proceedings, PDF pp. 109–127).
+- Luca Paolini, Mauro Piccolo, Luca Roversi. TYPES 2015 (LIPIcs 69) — full text read 2026-09-26.
 - Toya Makino, Tetsuo Yokoyama. *Small-Step Semantics with Meta-Level Reversibility for a
   Reversible Core Language.* RC 2026, LNCS 16626, pp. 201–218. doi:10.1007/978-3-032-30839-9_12.
   Artifact: this repository (`proofs.v`).

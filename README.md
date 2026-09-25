@@ -288,10 +288,14 @@ Prior small-step work on the same language shape is in the Rocq
 development of [`yokoyama-lab/PyJanus`](https://github.com/yokoyama-lab/PyJanus)
 (`coq/RevSmallStep.v`, which shows that a context-based small-step
 semantics is not backward deterministic, and `coq/RevLoopLemma.v`, which
-recovers backward determinism by recording a history). What `janus/janus.v`
-adds is backward determinism *without* a history, and the backward relation
-obtained as the forward one on the inverted configuration; see
-[`janus/LANESE_VIDAL.md`](janus/LANESE_VIDAL.md) §4a.
+recovers backward determinism by recording a history). Against those,
+`janus/janus.v` adds backward determinism *without* a history, and the
+backward relation obtained as the forward one on the inverted configuration.
+Lanese–Vidal's own semantics is also history-free (it is not mechanized, and
+its Loop Lemma assumes reachable configurations); against it, what is new is
+the token representation they asked about, the mechanization, a decidable
+well-formedness hypothesis in place of reachability, and parameters and
+locals. See [`janus/LANESE_VIDAL.md`](janus/LANESE_VIDAL.md) §4a–§4b.
 
 | Result | Identifier in `janus/janus.v` |
 |---|---|
