@@ -5,7 +5,7 @@
 > 彼らの Loop Lemma（到達可能配置上の ⇀ iff ↽）は、こちらでは後向き関係を逆関係として定義するため定義上成り立ち、内容は前向き決定性・整形式性下の後向き決定性・`inv_step_reverses` に移る。
 > 彼らの規則の正確な形（図）は本稿では読めていないため未検証として明示する。
 
-Status (2026-09-25): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 80 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-26): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 97 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -72,8 +72,8 @@ paragraph, cite the LNCS version. Their reference [15] to Makino–Yokoyama is p
 | **Lemma 2** (§3.2, p.195; text L466–467): `flow⁻¹(s) = flow(I[[s]])` — the inverse CFG is the CFG of the inverted program | `inv_step_reverses` (`wf_cs cs -> jstep Γ (cs,s) (cs',s') -> jstep Γ (cs_inv cs', s') (cs_inv cs, s)`) and `bstep_is_fwd_of_inv` (`wf_cs cs -> wf_cs cs' -> (bstep Γ (cs,s) (cs',s') <-> jstep Γ (cs_inv cs, s) (cs_inv cs', s'))`): a forward step of `s` is, read backwards, a forward step of `inv s` at the `cs_inv`-mirrored position; hence `bstep` is the forward relation of the inverted program. The only hypothesis is `wf_cs` (for the `J_Asn` case); no `wf_penv`, no reachability | Their statement is about the static graph; ours is about the transition relation, one step at a time. (inferred) Ours is the dynamic form of theirs; a Janus CFG layer (RULES.md §7 item 7) would let the static form be stated too. |
 | **Definition 1** (reachable configuration, p.197; text L586–598): obtainable from an initial ⟨ε, ℓ1, ℓ2, []⟩ by (⇀ ∪ ↽)*; "This rules out, e.g., the case of configurations ⟨σ, ℓ, ℓ′, π⟩ where ℓ and ℓ′ are not the two ends of an edge of the CFG" | not needed as a hypothesis; the only hypothesis is `wf_cs` (and `wf_penv Γ`) | See the table below. |
 | **Lemma 3 (loop lemma)** (p.198; text L601–612): for a reachable ⟨σ,ℓ1,ℓ2,π⟩, `⇀` to ⟨σ′,…⟩ iff ⟨σ′,…⟩ `↽` back. "The proof is by case distinction on the applied rule. Full details can be found in the extended version [13]." | `bstep Γ cfg cfg' := jstep Γ cfg' cfg`, so "⇀ iff ↽" holds **by definition**. The content moves to three theorems: (a) `jstep_deterministic` (forward determinism, no hypothesis); (b) `jstep_bwd_deterministic_tgt` / `bstep_deterministic` (backward determinism under `wf_cs` of the common target, **no reachability**); (c) `inv_step_reverses` / `bstep_is_fwd_of_inv` (under `wf_cs`: the backward relation is computed by running the inverted program forwards). | (inferred) In their setting the backward relation is given by a second set of rules (Fig. 14/15), so the Loop Lemma is a genuine theorem relating two definitions. In ours the second definition is the pair `inv`/`cs_inv`, and (c) is the theorem relating it to the converse; (a)+(b) are what make the converse a *function*, which the Loop Lemma alone does not give (it states existence of an inverse step, not uniqueness — the extraction does not show a determinism lemma in the conference text). |
-| Equivalence with the big-step semantics of the literature: asserted in §4 (text L613–617), proofs in the extended version | not yet (RULES.md §7 item 8) | Both developments leave this to another document; theirs to arXiv:2602.16913, ours to future work. |
-| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 80 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
+| Equivalence with the big-step semantics of the literature: asserted in §4 (text L613–617), proofs in the extended version | **done** (2026-09-26): `exec_iff_jstar` — our big-step `exec` is exactly the entry-to-exit runs of `jstep` | Theirs is in the extended version (arXiv:2602.16913, not read here); ours is mechanized. We also derive big-step inverter correctness from step-level reversibility (`exec_inv_iff`). |
+| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 97 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
 
 ### Conditions under which the Loop Lemma holds
 
@@ -143,7 +143,7 @@ primitives: a module type `REV_PRIM` whose `pstep` is *assumed* deterministic an
 | Backward determinism | **refuted**: `step_not_backward_deterministic` (L344), `exit_assertion_collapses` (L358) | yes, no hypothesis: `fstep_backward_det` (L239), via `loop_lemma` (L180) | yes, under `wf_cs` (decidable on the configuration): `jstep_bwd_deterministic`, `bstep_deterministic` |
 | Backward relation | — | `bstep`, defined separately; reads the history | the converse of `jstep`; `bstep_is_fwd_of_inv`: it *is* forward `jstep` on `cs_inv` |
 | Where injectivity of assignment comes from | axiom of the module type (`pstep_rev`) | same | proved for concrete `+= -= ^=` from `x ∉ e` (`asn_step_injective`); `x ^= x` shows `wf_cs` cannot be dropped |
-| Relation to big-step | `equiv` (L320) | `exec_iff_pc` | none yet (`README.md`, next steps) |
+| Relation to big-step | `equiv` (L320) | `exec_iff_pc` | `exec_iff_jstar`; `exec_inv_iff` (inverter correct for big-step) is **derived** from `inv_step_reverses`, whereas PyJanus proves `exec_iff` directly on the big-step side |
 
 So the accurate statement of what `janus/janus.v` adds is:
 

@@ -15,7 +15,7 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
 
 ## Files
 
-- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (80 results, axiom-free, Rocq 9.1.1).
+- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (97 results, axiom-free, Rocq 9.1.1).
 - `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
@@ -33,6 +33,11 @@ Arrays: `aasn_step_injective`, `j_array_run`, `j_array_inverse`, `j_array_out_of
 `aasn_bwd_needs_anf` (why `a ∉ e2` is required). Out-of-bounds reads in expressions yield 0
 (documented deviation, `RULES.md` §1).
 
+Big-step: `exec_iff_jstar` (the natural big-step semantics `exec` is exactly the runs of
+`jstep` from entry to exit), and as corollaries `exec_deterministic` and `exec_inv` /
+`exec_inv_iff` (the program inverter is correct for `exec`, derived from step-level
+reversibility).
+
 Excluded for now: `/` and `%` (and, with them, partial expression evaluation).
 
 ## Resume notes
@@ -47,4 +52,4 @@ Next steps, in priority order (details in `RULES.md` §7):
 5. A CFG/fss layer and a formal, rule-by-rule comparison with Lanese–Vidal once the paper's
    figures are available: only the `pdftotext` extraction in rc-survey was readable here, so
    `LANESE_VIDAL.md` §5 lists what still needs the paper (rule shapes, loop-label alignment).
-6. A big-step semantics and its equivalence with `jstep`.
+6. ~~A big-step semantics and its equivalence with `jstep`~~ — done (`exec_iff_jstar`).
