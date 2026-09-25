@@ -1,25 +1,28 @@
 # Janus control-token semantics: the rule table
 
-> **要旨（日本語）** R-CORE の制御トークン（•）小ステップ意味論を、配列・除算を除いた Janus コア（参照渡しの手続き引数と local/delocal を含む。いずれも 2026-09-24 追加）へ拡張したときの全 30 規則を一覧にする。
+> **要旨（日本語）** R-CORE の制御トークン（•）小ステップ意味論を、除算を除いた Janus コア（配列・参照渡しの手続き引数・local/delocal を含む。2026-09-24〜25 追加）へ拡張したときの全 31 規則を一覧にする。
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-09-24): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 67 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-25): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 80 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
 ## 1. Scope and syntax
 
-The language is the Janus core of Lanese–Vidal (RC 2026) minus arrays and minus the partial
+The language is the Janus core of Lanese–Vidal (RC 2026), arrays included, minus the partial
 operators `/` and `%`, **plus** call-by-reference procedure parameters and `local`/`delocal`
 blocks (neither of which Lanese–Vidal treat). Values are `Z`
 (Rocq `Z`), truth is "nonzero". Variables are `X0..X9`, realized as `Fin.t 10` exactly as in
-`proofs.v` (so stores are `Vector.t Z 10` and store extensionality stays a theorem, no axiom).
+`proofs.v`; arrays are `A0..A3` (`Fin.t 4`), each of fixed length `asize = 8`. A store is the
+record `{sv : Vector.t Z 10; sa : Vector.t (Vector.t Z asize) 4}`, so store extensionality stays
+a theorem (`store_ext`, `vec_ext`), no axiom.
 
 ```
 e ::= n                       constant (Z)
     | x                       variable (Fin.t 10)
     | e1 ⊕ e2                 ⊕ ∈ { + , - , * , xor , & , | , < , > , = , != , && , || }
+    | a[e]                    array read (Eidx a e); out of bounds reads 0
 
 s ::= skip                                        Sskip
     | x op= e        op ∈ { += , -= , ^= }         Sass x op e     (op : Uadd | Usub | Uxor)
@@ -29,6 +32,7 @@ s ::= skip                                        Sskip
     | call p(y1, …, yn)                            Scall p ys      (ys : list var)
     | uncall p(y1, …, yn)                          Suncall p ys
     | local x = e1; s; delocal x = e2              Slocal x e1 s e2
+    | a[e1] op= e2                                 Saass a e1 op e2
 
 Γ : pid -> proc      procedure environment, a parameter of the step relation (jstep Γ)
 proc = { formals : list var ; body : stmt }
@@ -59,6 +63,14 @@ The saved value is a stack frame, not a history: there is one per *active* block
 configuration grows with nesting (and recursion) depth, not with the length of the run.
 A failed delocal assertion is a stuck configuration (`j_delocal_mismatch_stuck`) — the first
 place where being stuck depends on a data value rather than on a guard.
+
+**Arrays.** `a[e1] op= e2` evaluates the index `e1`; if it is in bounds (`idx`, `0 ≤ i < asize`)
+the cell is updated with `op`, otherwise the configuration is stuck
+(`j_array_out_of_bounds_stuck`). Well-formedness requires that `a` occur in neither `e1` nor
+`e2` (`anf_expr`, `wf_Saass`) — Janus's rule. `inv` inverts `op` and keeps the index.
+*Deviation:* an out-of-bounds **read** `a[e]` inside an expression yields 0 instead of being an
+error, which keeps `eval` total (as in the rest of this file); making it partial is the same work
+as adding `/` and `%` (§7 item 4).
 
 Expression evaluation `eval s e : Z` is **total** (every operator is total on `Z`; the
 comparison and logical operators return 0/1). It is **not** reversible, and is not meant to
@@ -178,9 +190,13 @@ inside the hole). Assertion failures (`e2` false at the end of a then-branch, `e
 | 28 | `J_Local_Enter` | — | `•local x = e1; s; delocal x = e2`, `σ` | `CS_local x (σ x) e1 (CS_pre s) e2`, `σ[x ↦ eval σ e1]` | data |
 | 29 | `J_Local_Exit` | `σ x = eval σ e2` | `CS_local x v e1 (CS_post s) e2`, `σ` | `(local x = e1; s; delocal x = e2)•`, `σ[x ↦ v]` | data |
 | 30 | `J_Ctx_Local` | `(cs, s) → (cs', s')` | `CS_local x v e1 cs e2, s` | `CS_local x v e1 cs' e2, s'` | congruence |
+| 31 | `J_AAsn` | `idx (eval σ e1) = Some i` | `•a[e1] op= e2`, `σ` | `(a[e1] op= e2)•`, `σ[a[i] ↦ σ(a[i]) op eval σ e2]` | data |
 
 Where `→` in a premise abbreviates `jstep Γ` for the same Γ. Counting: 1 data, 8 control,
-10 administrative, 8 congruence = 27, plus the local rules 28–30 (2 data, 1 congruence) = 30.
+10 administrative, 8 congruence = 27, plus the local rules 28–30 (2 data, 1 congruence) = 30, plus the array rule 31 (data) = 31.
+Partial injectivity of 31 (`aasn_step_injective`): `a ∉ e1` makes the index a function of the
+post-store (the update only touches `a`), and `a ∉ e2` plus injectivity of `op=` recovers the cell;
+without `a ∉ e2`, `A0[0] ^= A0[0]` sends two stores to one (`aasn_bwd_needs_anf`).
 Partial injectivity of 28: the saved `v` fixes the pre-store at `x` and the update leaves the rest
 (`local_enter_injective`; no well-formedness needed). Of 29: the restored value fixes `v`, and the
 delocal assertion fixes the pre-store at `x` provided `x ∉ e2` (`local_exit_injective`); without
@@ -312,7 +328,9 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `local_enter_injective`, `local_exit_injective` | partial injectivity of rules 28 and 29 (the latter under `x ∉ e2`) | — |
 | `j_local_shadows`, `j_local_inverse` (Examples) | `local X0 = X1+1; X2 += X0; delocal X0 = X1+1` from `X0 = 7, X1 = 3` ends with `X2 = 4` and the outer `X0 = 7` restored; the inverse block restores the start store | — |
 | `j_delocal_mismatch_stuck`, `j_delocal_mismatch_no_step`, `local_bwd_needs_nf` (Examples) | a failed delocal is stuck; `delocal x = x` breaks backward determinism, so `wf_cs` must require `x ∉ e2` | — |
-| `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` | decision procedures | `nf_expr_dec` (L419), `wf_cmd_dec` (L444), `wf_cc_dec` (L4365) |
+| `aasn_step_injective`, `eval_aupdate_invariant`, `eval_aagree`, `aupdate_cancel` | partial injectivity of rule 31; an update of `a` does not change an `a`-free expression; undoing the cell update | — |
+| `j_array_run`, `j_array_inverse`, `j_array_out_of_bounds_stuck`, `aasn_bwd_needs_anf` (Examples) | `X0 += 3; A0[X0] += 5; A0[X0+1] ^= A0[X0]` and its inverse; index 8 and −1 are stuck; `a ∉ e2` is necessary | — |
+| `nf_expr_dec`, `anf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` | decision procedures | `nf_expr_dec` (L419), `wf_cmd_dec` (L444), `wf_cc_dec` (L4365) |
 
 Why `wf_penv Γ` appears where `proofs.v` had nothing: `J_Call_Enter` and `J_Uncall_Enter` bring
 `inst (Γ p) ys` (resp. its inverse) *into* the controlled statement, so preservation needs the
@@ -335,8 +353,7 @@ corollary rather than a separate theorem (cf. `ss_bwd_deterministic_reachable`, 
 
 Excluded from this core, in the order they should be added:
 
-1. **Arrays** (`x[e1] op= e2`). Needs an indexed store and a well-formedness condition on both
-   `e1` and `e2`; `asn_step_injective` becomes injectivity of an update at a *computed* index.
+1. ~~**Arrays**~~ — **done 2026-09-25** (§1 "Arrays", rule 31).
 2. ~~**`local x = e … delocal x = e`**~~ — **done 2026-09-24** (§1 "Local blocks", rules 28–30).
 3. ~~**Procedure parameters**~~ — **done 2026-09-24** (§1 "Parameters"): `Γ : pid -> proc`,
    `CS_call`/`CS_uncall` record the actuals, the body is instantiated by renaming, and the
