@@ -4,7 +4,7 @@
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-09-26): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 97 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-09-26, updated after the PRO pre-submission review): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 98 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -51,7 +51,7 @@ a global the body uses. An aliasing call is stuck (`j_alias_actuals_stuck`,
 `j_alias_global_stuck`). The side condition is what keeps well-formedness invariant
 (`wf_inst`, via `wf_stmt_rename`); without it a well-formed environment can instantiate `X1 ^= X1`
 (`alias_breaks_wf`), and removing it from `J_Call_Enter` makes `wf_cs_step_preserved_cfg` fail
-(mutation-checked 2026-09-24). A parameterless procedure is the case `xs = ys = []`
+(mutation-checked 2026-09-24; reproducible with `make janus-mutants`). A parameterless procedure is the case `xs = ys = []`
 (`inst_no_params`, `call_ok_no_params`), so the previous parameterless core is a special case.
 
 **Local blocks.** `local x = e1; s; delocal x = e2` shadows `x` inside `s`. Entering sets
@@ -327,6 +327,7 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `j_alias_actuals_stuck`, `j_alias_global_stuck`, `alias_breaks_wf` (Examples) | `call 0(X2, X2)` and `call 1(X1)` (with `proc 1(a) = a ^= X1`) are stuck; the latter would instantiate the ill-formed `X1 ^= X1` | — |
 | `local_enter_injective`, `local_exit_injective` | partial injectivity of rules 28 and 29 (the latter under `x ∉ e2`) | — |
 | `j_local_shadows`, `j_local_inverse` (Examples) | `local X0 = X1+1; X2 += X0; delocal X0 = X1+1` from `X0 = 7, X1 = 3` ends with `X2 = 4` and the outer `X0 = 7` restored; the inverse block restores the start store | — |
+| `asn_bwd_needs_nf` (Example) | `X0 ^= X0` sends two stores to one, so `wf_stmt` must require `x ∉ e` for `x op= e` | `nf_expr_not_self` (proofs.v) |
 | `j_delocal_mismatch_stuck`, `j_delocal_mismatch_no_step`, `local_bwd_needs_nf` (Examples) | a failed delocal is stuck; `delocal x = x` breaks backward determinism, so `wf_cs` must require `x ∉ e2` | — |
 | `aasn_step_injective`, `eval_aupdate_invariant`, `eval_aagree`, `aupdate_cancel` | partial injectivity of rule 31; an update of `a` does not change an `a`-free expression; undoing the cell update | — |
 | `j_array_run`, `j_array_inverse`, `j_array_out_of_bounds_stuck`, `aasn_bwd_needs_anf` (Examples) | `X0 += 3; A0[X0] += 5; A0[X0+1] ^= A0[X0]` and its inverse; index 8 and −1 are stuck; `a ∉ e2` is necessary | — |

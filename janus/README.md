@@ -12,10 +12,11 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
     make janus         # rocq c -Q . RCore janus/janus.v   (this is the proof)
     make janus-check   # kernel re-validation of RCore.janus.janus
     make janus-audit   # tools/audit.sh with SRC=janus/janus.v: no Admitted/Axiom, all Closed
+    make janus-mutants # tools/janus-mutants.py: 8 one-point mutants, each must fail in the expected proof
 
 ## Files
 
-- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (97 results, axiom-free, Rocq 9.1.1).
+- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (98 results, axiom-free, Rocq 9.1.1).
 - `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 

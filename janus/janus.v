@@ -2106,6 +2106,22 @@ Example j_delocal_mismatch_no_step :
            (update zero_store X0 2) = None.
 Proof. vm_compute. reflexivity. Qed.
 
+(* Why wf_stmt demands x ∉ e for x op= e: X0 ^= X0 clears X0 whatever
+   its value, so two distinct stores step to the same one and backward
+   determinism fails. *)
+Example asn_bwd_needs_nf :
+  let p := Sass X0 Uxor (Evar X0) in
+  let c1 := (CS_pre p, update zero_store X0 1) in
+  let c2 := (CS_pre p, update zero_store X0 2) in
+  let c  := (CS_post p, zero_store) in
+  jstep Γ0 c1 c /\ jstep Γ0 c2 c /\ c1 <> c2.
+Proof.
+  simpl. split; [| split].
+  - apply J_Asn'. vm_compute. reflexivity.
+  - apply J_Asn'. vm_compute. reflexivity.
+  - intro H. inversion H.
+Qed.
+
 (* Why wf_cs demands x ∉ e2: with delocal X0 = X0 the assertion is
    vacuous, and two configurations that differ only in the local value of
    X0 step to the same one, so backward determinism fails. *)
@@ -2295,3 +2311,4 @@ Print Assumptions exec_inv_iff.
 Print Assumptions run_jstar.
 Print Assumptions exec_call_by_reference.
 Print Assumptions exec_call_inverted.
+Print Assumptions asn_bwd_needs_nf.

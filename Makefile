@@ -1,6 +1,6 @@
 ROCQ ?= rocq
 
-.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit clean
+.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants clean
 
 all: proofs.vo
 
@@ -56,6 +56,11 @@ janus-check: janus/janus.vo
 
 janus-audit:
 	SRC=janus/janus.v ROCQ=$(ROCQ) ./tools/audit.sh
+
+# Break one definition at a time (on temporary copies) and check that the
+# expected proof fails; see tools/janus-mutants.py and the paper's Table 5.
+janus-mutants:
+	ROCQ=$(ROCQ) python3 tools/janus-mutants.py
 
 clean:
 	rm -f *.vo *.vos *.vok *.glob .*.aux .lia.cache
