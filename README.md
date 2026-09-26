@@ -282,7 +282,7 @@ technique scales to Janus; for this fragment the answer is yes: the 31-rule
 relation `jstep Γ` is deterministic in both directions under
 well-formedness, and the syntactic inverter reverses every step. The file
 is self-contained (it does not import `proofs.v`), axiom-free, and audited
-by the same script (97 results).
+by the same script (98 results).
 
 Prior small-step work on the same language shape is in the Rocq
 development of [`yokoyama-lab/PyJanus`](https://github.com/yokoyama-lab/PyJanus)
