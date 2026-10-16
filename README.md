@@ -24,7 +24,7 @@ small-step semantics (**fss**). Among the results proved:
 
 | Result | Identifier |
 |---|---|
-| **Theorem 1 of the paper fails as printed.** `AsnSet_ss` requires `e ≠ nil` and `AsnClear_ss` requires `d ≠ nil`, so ss is stuck when the target and the value of the right-hand side are both `nil`, while `Asn_ds` is defined there and `AsnClear_fss` carries no such premise. `S_Asn` merges the two rules and closes the gap | `rc2026_theorem1_fails_as_printed_full` (whole printed relation), `rc2026_theorem1_fails_as_printed` (assignment rules alone), `ss_paper`, `ss_paper_asn`, `exec_ss_from_pre_asn_inv` |
+| **Theorem 1 of the paper fails as printed.** `AsnSet_ss` requires `e ≠ nil` and `AsnClear_ss` requires `d ≠ nil`, so ss is stuck when the target and the value of the right-hand side are both `nil`, while `Asn_ds` is defined there and `AsnClear_fss` carries no such premise. `S_Asn` merges the two rules and closes the gap | `rc2026_theorem1_fails_as_printed_all_printed` (every leg against a transcribed printed rule), `rc2026_theorem1_fails_as_printed_full` (printed ss against the amended ds and ss), `rc2026_theorem1_fails_as_printed` (assignment rules alone), `ss_paper`, `ss_paper_asn`, `exec_ss_from_pre_asn_inv` |
 | **The printed loop guards are stricter than ours.** They test equality with `t` and `f`; since the data domain is all binary trees over `nil`, a variable can hold a value that is neither, and there the printed rules are stuck. A two-line well-formed program reaches such a store | `rc2026_loop_guards_are_stricter`, `ss_paper_loop`, `odd_store_wf`, `odd_store_reachable` |
 | **The structural congruence is not quotiented away but recovered.** Every member of a congruence class stays a distinct `cont_cmd`; the three equations of Eq. (7) are oriented as `S_Seq_Enter`/`S_Seq_Mid`/`S_Seq_Exit`, and the congruence is exactly their equivalence closure. It only moves the token, so it preserves the program and well-formedness | `cong_iff_admin`, `admin_step_is_ss`, `cc_cong_erase`, `cc_cong_preserves_wf` |
 | Forward determinism of ss (Lemma 1, forward) | `ss_step_deterministic` / `rev_com_forward` |
@@ -102,15 +102,15 @@ rest of it is; its size is not the price of those theorems.
 | &nbsp;&nbsp;&nbsp;&nbsp;well-formedness is decidable, command and controlled | — | `wf_cmd_dec`, `wf_cc_dec` |
 | &nbsp;&nbsp;&nbsp;&nbsp;self-assignment `X ^= X` is excluded by it | — | `nf_expr_not_self` |
 | **Divergences from the printed rules (Sect. 2)** | | |
-| the equivalence theorem does not hold as printed | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
-| &nbsp;&nbsp;&nbsp;&nbsp;from the assignment rules alone | Theorem 1 | `rc2026_theorem1_fails_as_printed` |
+| the equivalence theorem does not hold as printed | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the printed ss is stuck where the amended rule moves | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;from the assignment rules alone | Theorem 1 | `rc2026_theorem1_fails_as_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the printed ss rules, transcribed | Fig. 9b | `ss_paper_asn`, `ss_paper_loop`, `ss_paper` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the printed ds rules, transcribed | Fig. 2c | `ds_paper`, `loop_paper` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its side condition is the domain of ⊙ | Fig. 2c | `ds_paper_side_iff_odot` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;so on assignments it is our `Asn_ds` | Fig. 2c | `ds_paper_asn_agrees` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and it denotes both witnesses | Fig. 2c | `gap_witness_paper_ds`, `gap_witness2_paper_ds` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its loop guard is stricter too | Fig. 2c | `ds_paper_loop_guard_is_stricter` |
-| &nbsp;&nbsp;&nbsp;&nbsp;every leg against a transcribed printed rule | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;only an assignment rule applies there | — | `exec_ss_from_pre_asn_inv` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the equality-test witness | Theorem 1 | `gap_witness2_wf`, `gap_witness2_ds` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on which the printed ss is stuck | Theorem 1 | `gap_witness2_paper_ss_stuck` |
@@ -139,10 +139,10 @@ rest of it is; its size is not the price of those theorems.
 | &nbsp;&nbsp;&nbsp;&nbsp;ss ⇔ fss | Theorem 1 | `semantic_equivalence_ss_fss` |
 | &nbsp;&nbsp;&nbsp;&nbsp;ds ⇔ fss | Theorem 1 | `semantic_equivalence_ds_fss` |
 | **Finer-grained semantics** | | |
-| fss, forward determinism (unconditional) | prose ‡ | `pstep_forward_deterministic` |
-| fss, backward determinism | prose ‡ | `pstep_backward_deterministic` |
-| &nbsp;&nbsp;&nbsp;&nbsp;counterexample | — | `fstep_not_backward_deterministic` |
-| &nbsp;&nbsp;&nbsp;&nbsp;within one flowchart | — | `fstep_backward_deterministic_pos` |
+| on a fixed flowchart, forward determinism (unconditional) | prose ‡ | `pstep_forward_deterministic` |
+| on a fixed flowchart, backward determinism | prose ‡ | `pstep_backward_deterministic` § |
+| on the residual flowchart, backward determinism fails | — | `fstep_not_backward_deterministic` |
+| &nbsp;&nbsp;&nbsp;&nbsp;but holds within one flowchart | — | `fstep_backward_deterministic_pos` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hence along its executions | — | `fstep_backward_deterministic_reachable` |
 | **Consequences of determinism** | | |
 | (1) uniqueness of the terminal store | — | `ss_run_unique` |
@@ -175,6 +175,9 @@ both predecessors.
 reading.
 
 ‡ asserted in the prose of the RC 2026 paper without proof.
+
+§ needs the flowchart to be well-formed (`wf_flow`); the fixed-position
+relation is `pstep`, the residual one `fstep`.
 
 ## Determinism of the finer-grained semantics (fss)
 
