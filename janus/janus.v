@@ -33,8 +33,8 @@
       big-step equivalence           [exec_iff_jstar], with
                                      [exec_deterministic], [exec_inv_iff]
 
-  Scope.  This is Janus with arrays (a[e1] op= e2, four global arrays of
-  fixed length) and the full operator set of Lanese-Vidal's Fig. 1,
+  Scope.  This is Janus with global arrays (a[e1] op= e2) and the full
+  operator set of Lanese-Vidal's Fig. 1,
   including / and % and <= and >=.  Expression evaluation is PARTIAL
   ([eval : store -> expr -> option Z], section 2): division or remainder
   by zero and an out-of-bounds array read have no value, and a step whose
@@ -46,7 +46,10 @@
   call-by-reference parameters (section 3a); the no-aliasing rule is the
   decidable side condition [call_ok] of the call/uncall rules.
   [local x = e1; s; delocal x = e2] blocks shadow x; the frame [CS_local]
-  saves the outer value.  Values are unbounded integers (Z).
+  saves the outer value.  Values are unbounded integers (Z).  The number
+  of variables, the number of arrays and the array length are implicit
+  arguments [nv na asize] of every definition and theorem (Section Janus),
+  so the results hold for stores of every size.
 
   Design.  R-CORE's [from x loop c until y] is the Janus loop
   [from x do skip loop c until y].  R-CORE needs a single "mid-loop" token
@@ -78,33 +81,22 @@ Set Implicit Arguments.
 (* 1. Syntax                                                          *)
 (* ================================================================= *)
 
-(* Ten variables X0..X9, as in proofs.v: [var := Fin.t 10]. *)
-Definition var := Fin.t 10.
+(* The development is generic in the size of the store: [nv] scalar
+   variables and [na] global arrays, each of length [asize].  They are
+   implicit arguments of every definition and result of sections 1-14,
+   so each theorem holds for every size; only the worked examples of
+   section 15 fix nv = 10, na = 4, asize = 8. *)
+Section Janus.
+Context {nv na asize : nat}.
 
-Definition X0 : var := Fin.F1.
-Definition X1 : var := Fin.FS Fin.F1.
-Definition X2 : var := Fin.FS (Fin.FS Fin.F1).
-Definition X3 : var := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
-Definition X4 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))).
-Definition X5 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))).
-Definition X6 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))).
-Definition X7 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))).
-Definition X8 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))))).
-Definition X9 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))))).
+Definition var := Fin.t nv.
+Definition arr := Fin.t na.
 
-(* Arrays: four global arrays A0..A3 of fixed length [asize]. *)
-Definition asize : nat := 8.
-Definition arr := Fin.t 4.
-Definition A0 : arr := Fin.F1.
-Definition A1 : arr := Fin.FS Fin.F1.
-Definition A2 : arr := Fin.FS (Fin.FS Fin.F1).
-Definition A3 : arr := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
-
-(* Stores: the ten scalar variables and the four arrays, both as vectors,
-   so that store equality stays extensional without an axiom. *)
+(* Stores: the scalar variables and the arrays, both as vectors, so that
+   store equality stays extensional without an axiom. *)
 Record store : Type := mkstore {
-  sv : Vector.t Z 10;
-  sa : Vector.t (Vector.t Z asize) 4
+  sv : Vector.t Z nv;
+  sa : Vector.t (Vector.t Z asize) na
 }.
 
 Definition lookup (s : store) : var -> Z := Vector.nth (sv s).
@@ -1425,7 +1417,7 @@ Definition stmt_eq_dec (a b : stmt) : {a = b} + {a <> b}.
 Proof.
   decide equality;
     first [ apply expr_eq_dec | apply updop_eq_dec | apply Fin.eq_dec
-          | apply Nat.eq_dec | apply (list_eq_dec (@Fin.eq_dec 10)) ].
+          | apply Nat.eq_dec | apply (list_eq_dec (@Fin.eq_dec nv)) ].
 Defined.
 
 (* In each context case the inner step is tried first; if the inner
@@ -2029,7 +2021,7 @@ Proof.
 Qed.
 
 (* ================================================================= *)
-(* 15. Embedding sanity: running a small Janus program                *)
+(* 14b. Running programs: step counting, a bounded runner, renaming  *)
 (* ================================================================= *)
 
 Inductive jnsteps (Γ : penv) : nat -> cont_stmt * store -> cont_stmt * store -> Prop :=
@@ -2037,32 +2029,32 @@ Inductive jnsteps (Γ : penv) : nat -> cont_stmt * store -> cont_stmt * store ->
   | JN_step : forall n cfg1 cfg2 cfg3,
       jstep Γ cfg1 cfg2 -> jnsteps Γ n cfg2 cfg3 -> jnsteps Γ (S n) cfg1 cfg3.
 
-Definition zero_store : store :=
-  mkstore (Vector.const 0 10%nat) (Vector.const (Vector.const 0 asize) 4%nat).
-Definition Γ0 : penv := fun _ => mkproc List.nil Sskip.
+(* A bounded runner over the verified stepper. *)
+Fixpoint run (Γ : penv) (n : nat) (cfg : cont_stmt * store) : cont_stmt * store :=
+  match n with
+  | O => cfg
+  | S n' => match step_fun Γ (fst cfg) (snd cfg) with
+            | Some cfg' => run Γ n' cfg'
+            | None => cfg
+            end
+  end.
 
-(*  X0 += 1;  if X0 then X1 ^= 3 else skip fi X0  *)
-Definition ex_prog : stmt :=
-  Sseq (Sass X0 Uadd (Econst 1))
-       (Sif (Evar X0) (Sass X1 Uxor (Econst 3)) Sskip (Evar X0)).
-
-Definition ex_final : store := update (update zero_store X0 1) X1 3.
-
-Example j_example_run :
-  jnsteps Γ0 7%nat (CS_pre ex_prog, zero_store) (CS_post ex_prog, ex_final).
+Lemma run_jstar : forall Γ n cfg, jstar Γ cfg (run Γ n cfg).
 Proof.
-  unfold ex_prog.
-  eapply JN_step. { apply J_Seq_Enter. }
-  eapply JN_step. { apply J_Ctx_Seq_L. eapply J_Asn. reflexivity. }
-  eapply JN_step. { apply J_Seq_Mid. }
-  eapply JN_step. { apply J_Ctx_Seq_R. apply J_If_True. reflexivity. }
-  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Ctx_If_Then. eapply J_Asn. reflexivity. }
-  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Fi_True. reflexivity. }
-  eapply JN_step. { apply J_Seq_Exit. }
-  apply JN_refl.
+  intros Γ n; induction n as [|n IH]; intros [c s]; simpl.
+  - apply JS_refl.
+  - destruct (step_fun Γ c s) as [[c' s']|] eqn:E.
+    + eapply JS_step; [apply step_fun_sound; exact E | apply IH].
+    + apply JS_refl.
 Qed.
 
-(* ---- 15a. Parameters: conservative extension and worked examples ---- *)
+(* No value from the stepper means no step at all. *)
+Lemma stuck_of_step_fun_none :
+  forall Γ cs s, step_fun Γ cs s = None -> forall cfg', ~ jstep Γ (cs, s) cfg'.
+Proof.
+  intros Γ cs s H [cs' s'] Hs.
+  apply step_fun_correct in Hs. congruence.
+Qed.
 
 Lemma rename_expr_id : forall e, rename_expr (fun v => v) e = e.
 Proof. induction e; simpl; congruence. Qed.
@@ -2091,19 +2083,65 @@ Proof. intro b; unfold inst; simpl; apply rename_id. Qed.
 Lemma call_ok_no_params : forall b, call_ok (mkproc List.nil b) List.nil = true.
 Proof. intro b; unfold call_ok; simpl; apply inj_onb_id. Qed.
 
-(* A bounded runner over the verified stepper. *)
-Fixpoint run (Γ : penv) (n : nat) (cfg : cont_stmt * store) : cont_stmt * store :=
-  match n with
-  | O => cfg
-  | S n' => match step_fun Γ (fst cfg) (snd cfg) with
-            | Some cfg' => run Γ n' cfg'
-            | None => cfg
-            end
-  end.
+End Janus.
+
+(* ================================================================= *)
+(* 15. Embedding sanity: running a small Janus program                *)
+(* ================================================================= *)
+
+(* The examples fix ten variables X0..X9, four arrays A0..A3 of length 8. *)
+Local Open Scope Z_scope.
+
+
+Definition X0 : Fin.t 10 := Fin.F1.
+Definition X1 : Fin.t 10 := Fin.FS Fin.F1.
+Definition X2 : Fin.t 10 := Fin.FS (Fin.FS Fin.F1).
+Definition X3 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
+Definition X4 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))).
+Definition X5 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))).
+Definition X6 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))).
+Definition X7 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))).
+Definition X8 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))))).
+Definition X9 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))))).
+
+Definition A0 : Fin.t 4 := Fin.F1.
+Definition A1 : Fin.t 4 := Fin.FS Fin.F1.
+Definition A2 : Fin.t 4 := Fin.FS (Fin.FS Fin.F1).
+Definition A3 : Fin.t 4 := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
+
+
+Definition zero_store : @store 10 4 8 :=
+  mkstore (Vector.const 0 10%nat) (Vector.const (Vector.const 0 8%nat) 4%nat).
+Definition Γ0 : @penv 10 4 := fun _ => mkproc List.nil Sskip.
+
+(*  X0 += 1;  if X0 then X1 ^= 3 else skip fi X0  *)
+Definition ex_prog : @stmt 10 4 :=
+  Sseq (Sass X0 Uadd (Econst 1))
+       (Sif (Evar X0) (Sass X1 Uxor (Econst 3)) Sskip (Evar X0)).
+
+Definition ex_final : @store 10 4 8 := update (update zero_store X0 1) X1 3.
+
+Example j_example_run :
+  jnsteps Γ0 7%nat (CS_pre ex_prog, zero_store) (CS_post ex_prog, ex_final).
+Proof.
+  unfold ex_prog.
+  eapply JN_step. { apply J_Seq_Enter. }
+  eapply JN_step. { apply J_Ctx_Seq_L. eapply J_Asn. reflexivity. }
+  eapply JN_step. { apply J_Seq_Mid. }
+  eapply JN_step. { apply J_Ctx_Seq_R. apply J_If_True. reflexivity. }
+  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Ctx_If_Then. eapply J_Asn. reflexivity. }
+  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Fi_True. reflexivity. }
+  eapply JN_step. { apply J_Seq_Exit. }
+  apply JN_refl.
+Qed.
+
+(* ---- 15a. Parameters: conservative extension and worked examples ---- *)
+
+
 
 (* procedure 0 (a, b):  a += b      with formals a = X0, b = X1
    procedure 1 (a)   :  a ^= X1     X1 is a global *)
-Definition Γ1 : penv := fun p =>
+Definition Γ1 : @penv 10 4 := fun p =>
   match p with
   | O => mkproc (X0 :: X1 :: List.nil) (Sass X0 Uadd (Evar X1))
   | _ => mkproc (X0 :: List.nil) (Sass X0 Uxor (Evar X1))
@@ -2115,7 +2153,7 @@ Proof.
 Qed.
 
 (*  X2 += 5;  call 0 (X3, X2)  : X3 is updated through the formal a. *)
-Definition ex_call : stmt :=
+Definition ex_call : @stmt 10 4 :=
   Sseq (Sass X2 Uadd (Econst 5)) (Scall 0%nat (X3 :: X2 :: List.nil)).
 
 Example j_call_by_reference :
@@ -2158,13 +2196,13 @@ Qed.
 (*  local X0 = X1 + 1;  X2 += X0;  delocal X0 = X1 + 1
     run from X0 = 7 (the outer X0), X1 = 3: the body sees X0 = 4, adds it
     to X2, and the outer X0 = 7 is restored at delocal. *)
-Definition ex_local : stmt :=
+Definition ex_local : @stmt 10 4 :=
   Slocal X0 (Ebin Bplus (Evar X1) (Econst 1))
          (Sass X2 Uadd (Evar X0))
          (Ebin Bplus (Evar X1) (Econst 1)).
 
-Definition ex_local_pre : store := update (update zero_store X0 7) X1 3.
-Definition ex_local_post : store := update ex_local_pre X2 4.
+Definition ex_local_pre : @store 10 4 8 := update (update zero_store X0 7) X1 3.
+Definition ex_local_post : @store 10 4 8 := update ex_local_pre X2 4.
 
 Example j_local_shadows :
   run Γ0 10%nat (CS_pre ex_local, ex_local_pre) = (CS_post ex_local, ex_local_post).
@@ -2178,7 +2216,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (*  local X0 = 1;  X0 += 1;  delocal X0 = 1 : the delocal assertion fails
     and the run is stuck inside the block. *)
-Definition ex_bad_delocal : stmt :=
+Definition ex_bad_delocal : @stmt 10 4 :=
   Slocal X0 (Econst 1) (Sass X0 Uadd (Econst 1)) (Econst 1).
 
 Example j_delocal_mismatch_stuck :
@@ -2226,11 +2264,11 @@ Qed.
 (* ---- 15c. Arrays: worked examples ---- *)
 
 (* Set a cell by an integer index (examples only). *)
-Definition aset (s : store) (a : arr) (z : Z) (v : Z) : store :=
+Definition aset (s : @store 10 4 8) (a : Fin.t 4) (z : Z) (v : Z) : @store 10 4 8 :=
   match idx z with Some i => aupdate s a i v | None => s end.
 
 (*  X0 += 3;  A0[X0] += 5;  A0[X0 + 1] ^= A0[X0]  *)
-Definition ex_arr : stmt :=
+Definition ex_arr : @stmt 10 4 :=
   Sseq (Sass X0 Uadd (Econst 3))
        (Sseq (Saass A0 (Evar X0) Uadd (Econst 5))
              (Saass A0 (Ebin Bplus (Evar X0) (Econst 1)) Uxor (Eidx A0 (Evar X0)))).
@@ -2269,14 +2307,6 @@ Qed.
 
 (* ---- 15d. Big-step examples, via the verified stepper ---- *)
 
-Lemma run_jstar : forall Γ n cfg, jstar Γ cfg (run Γ n cfg).
-Proof.
-  intros Γ n; induction n as [|n IH]; intros [c s]; simpl.
-  - apply JS_refl.
-  - destruct (step_fun Γ c s) as [[c' s']|] eqn:E.
-    + eapply JS_step; [apply step_fun_sound; exact E | apply IH].
-    + apply JS_refl.
-Qed.
 
 (* call-by-reference, as a big-step judgement *)
 Example exec_call_by_reference :
@@ -2295,18 +2325,11 @@ Qed.
 
 (* ---- 15e. Partial evaluation: / and %, <= and >=, and errors ---- *)
 
-(* No value from the stepper means no step at all. *)
-Lemma stuck_of_step_fun_none :
-  forall Γ cs s, step_fun Γ cs s = None -> forall cfg', ~ jstep Γ (cs, s) cfg'.
-Proof.
-  intros Γ cs s H [cs' s'] Hs.
-  apply step_fun_correct in Hs. congruence.
-Qed.
 
 (*  X0 += 7 / 2;  X1 += -7 / 2;  X2 += 7 % -2;  X3 += (3 <= 3) + (2 >= 3)
     / and % round towards minus infinity (Z.div, Z.modulo), as Haskell's
     div and mod in the jana interpreter: X0 = 3, X1 = -4, X2 = -1, X3 = 1. *)
-Definition ex_div : stmt :=
+Definition ex_div : @stmt 10 4 :=
   Sseq (Sass X0 Uadd (Ebin Bdiv (Econst 7) (Econst 2)))
   (Sseq (Sass X1 Uadd (Ebin Bdiv (Econst (-7)) (Econst 2)))
   (Sseq (Sass X2 Uadd (Ebin Bmod (Econst 7) (Econst (-2))))
@@ -2361,12 +2384,12 @@ Proof. apply stuck_of_step_fun_none; vm_compute; reflexivity. Qed.
     inverse program, run forwards, undoes it.  Partiality does not reach
     the inverse: x op= e needs x not in e, so e has the same value before
     and after the step (eval_update_invariant). *)
-Definition ex_divmod : stmt :=
+Definition ex_divmod : @stmt 10 4 :=
   Sseq (Sass X1 Uadd (Ebin Bdiv (Evar X0) (Econst 3)))
        (Sass X2 Uadd (Ebin Bmod (Evar X0) (Econst 3))).
 
-Definition ex_divmod_pre : store := update zero_store X0 17.
-Definition ex_divmod_post : store := update (update ex_divmod_pre X1 5) X2 2.
+Definition ex_divmod_pre : @store 10 4 8 := update zero_store X0 17.
+Definition ex_divmod_post : @store 10 4 8 := update (update ex_divmod_pre X1 5) X2 2.
 
 Example j_divmod_run :
   run Γ0 10%nat (CS_pre ex_divmod, ex_divmod_pre) = (CS_post ex_divmod, ex_divmod_post).
@@ -2376,6 +2399,45 @@ Example j_divmod_inverse :
   run Γ0 10%nat (CS_pre (inv ex_divmod), ex_divmod_post)
   = (CS_post (inv ex_divmod), ex_divmod_pre).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- 15f. Another store size ---- *)
+
+(* The results of sections 1-14b hold for every number of variables and
+   arrays and every array length.  Three variables Y0..Y2 and one array B0
+   of length 2: *)
+Definition Y0 : Fin.t 3 := Fin.F1.
+Definition Y1 : Fin.t 3 := Fin.FS Fin.F1.
+Definition B0 : Fin.t 1 := Fin.F1.
+
+Definition small_zero : @store 3 1 2 :=
+  mkstore (Vector.const 0 3%nat) (Vector.const (Vector.const 0 2%nat) 1%nat).
+Definition Γs : @penv 3 1 := fun _ => mkproc List.nil Sskip.
+
+(*  Y0 += 1;  B0[Y0] += 5;  Y1 += B0[Y0]  *)
+Definition ex_small : @stmt 3 1 :=
+  Sseq (Sass Y0 Uadd (Econst 1))
+       (Sseq (Saass B0 (Evar Y0) Uadd (Econst 5))
+             (Sass Y1 Uadd (Eidx B0 (Evar Y0)))).
+
+Definition ex_small_post : @store 3 1 2 :=
+  update (update (aupdate small_zero B0 (Fin.FS Fin.F1) 5) Y0 1) Y1 5.
+
+Example j_small_run :
+  run Γs 20%nat (CS_pre ex_small, small_zero) = (CS_post ex_small, ex_small_post).
+Proof. vm_compute. reflexivity. Qed.
+
+Example j_small_inverse :
+  run Γs 20%nat (CS_pre (inv ex_small), ex_small_post) = (CS_post (inv ex_small), small_zero).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Index 2 is out of bounds at length 2 (it is in bounds at length 8). *)
+Example j_small_oob_stuck :
+  (forall cfg', ~ jstep Γs (CS_pre (Saass B0 (Econst 2) Uadd (Econst 1)), small_zero) cfg')
+  /\ step_fun Γ0 (CS_pre (Saass A0 (Econst 2) Uadd (Econst 1))) zero_store <> None.
+Proof.
+  split; [apply stuck_of_step_fun_none; vm_compute; reflexivity |].
+  vm_compute. discriminate.
+Qed.
 
 (* ================================================================= *)
 (* 16. Axiom audit                                                    *)
@@ -2491,3 +2553,6 @@ Print Assumptions j_until_error_stuck.
 Print Assumptions j_delocal_error_stuck.
 Print Assumptions j_divmod_run.
 Print Assumptions j_divmod_inverse.
+Print Assumptions j_small_run.
+Print Assumptions j_small_inverse.
+Print Assumptions j_small_oob_stuck.

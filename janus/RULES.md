@@ -4,7 +4,7 @@
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-10-18, partial expression evaluation): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 107 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-10-18, partial expression evaluation; arbitrary store size): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 110 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -13,14 +13,17 @@ Status (2026-10-18, partial expression evaluation): every result named below is 
 The language is the Janus core of Lanese–Vidal (RC 2026), arrays and the whole operator set of
 their Fig. 1 included (`/` `%` `<=` `>=` since 2026-10-18), **plus** call-by-reference procedure
 parameters and `local`/`delocal` blocks (neither of which Lanese–Vidal treat). Values are `Z`
-(Rocq `Z`), truth is "nonzero". Variables are `X0..X9`, realized as `Fin.t 10` exactly as in
-`proofs.v`; arrays are `A0..A3` (`Fin.t 4`), each of fixed length `asize = 8`. A store is the
-record `{sv : Vector.t Z 10; sa : Vector.t (Vector.t Z asize) 4}`, so store extensionality stays
-a theorem (`store_ext`, `vec_ext`), no axiom.
+(Rocq `Z`), truth is "nonzero". The store has `nv` variables (`var := Fin.t nv`) and `na`
+arrays (`arr := Fin.t na`) of length `asize`; since 2026-10-18 the three sizes are implicit
+arguments of every definition and theorem (`Section Janus`, `Context {nv na asize : nat}`), so
+each result holds for every size. Until then they were fixed at `10`, `4` and `8`, which the
+worked examples still use (`X0..X9`, `A0..A3`; §15f runs a program at `nv = 3, na = 1,
+asize = 2`). A store is the record `{sv : Vector.t Z nv; sa : Vector.t (Vector.t Z asize) na}`,
+so store extensionality stays a theorem (`store_ext`, `vec_ext`), no axiom.
 
 ```
 e ::= n                       constant (Z)
-    | x                       variable (Fin.t 10)
+    | x                       variable (Fin.t nv)
     | e1 ⊕ e2                 ⊕ ∈ { + , - , * , / , % , xor , & , | , < , > , <= , >= , = , != , && , || }
     | a[e]                    array read (Eidx a e); out of bounds: no value
 
@@ -359,6 +362,7 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `exec_deterministic` | big-step determinism, derived from `jstep_deterministic` and terminality of `s•` (`jstar_deterministic_terminal`) | `ds_deterministic` |
 | `exec_inv`, `exec_inv_iff` | `wf_penv Γ -> wf_stmt s -> (exec Γ s σ σ' <-> exec Γ (inv s) σ' σ)` — correctness of the program inverter for the big-step semantics, **derived** from step-level reversibility: a run reverses position by position into a run of the inverse (`jstar_inv`, from `inv_step_reverses` and `wf_cs_step_preserved`) | — |
 | `run_jstar`, `exec_call_by_reference`, `exec_call_inverted` | the bounded runner produces `jstar` runs; a call-by-reference program as a big-step judgement, and its inverse via `exec_inv` | — |
+| `j_small_run`, `j_small_inverse`, `j_small_oob_stuck` (Examples) | the same development at `nv = 3, na = 1, asize = 2`: a program with an array read and its inverse; index 2 is stuck at length 2 but not at length 8 | — |
 | `stuck_of_step_fun_none` | `step_fun Γ cs s = None -> forall cfg', ~ jstep Γ (cs, s) cfg'` (from `step_fun_correct`) | — |
 | `j_div_run`, `j_divmod_run`, `j_divmod_inverse` (Examples) | `/` `%` round towards −∞ and `<=` `>=` return 0/1; `X1 += X0 / 3; X2 += X0 % 3` from `X0 = 17` and its inverse | — |
 | `j_div_by_zero_stuck`, `j_oob_read_stuck`, `j_strict_and_stuck`, `j_until_error_stuck`, `j_delocal_error_stuck` (Examples) | an expression without a value (zero divisor, index 8 or −1, `0 && 1/0`) blocks an assignment, a guard at the until-point and a delocal assertion | — |
@@ -393,6 +397,9 @@ Excluded from this core, in the order they should be added:
 4. ~~**`/` and `%`**~~ — **done 2026-10-18** (§1 "Expression evaluation is partial"):
    `eval : store -> expr -> option Z`, with `<=` and `>=`, which had also been missing from the
    operator set. Out-of-bounds reads are errors as well, so the read deviation is gone.
+
+4a. ~~**Store size as a parameter**~~ — **done 2026-10-18**: `nv`, `na`, `asize` are implicit
+   arguments of every definition and theorem (`Section Janus`).
 
 Independent of the language extensions:
 

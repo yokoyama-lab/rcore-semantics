@@ -17,7 +17,7 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
 
 ## Files
 
-- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (107 results, axiom-free, Rocq 9.1.1).
+- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (110 results, axiom-free, Rocq 9.1.1). Every definition and theorem takes the store size (`nv` variables, `na` arrays of length `asize`) as implicit arguments; the examples fix 10, 4, 8 (and §15f 3, 1, 2).
 - `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
@@ -53,6 +53,7 @@ partiality never reaches the backward direction (`RULES.md` §1).
 Next steps, in priority order (details in `RULES.md` §7):
 
 1. ~~Partial `eval` (`/`, `%`, out-of-bounds reads as errors)~~ — done 2026-10-18.
+1a. ~~Arbitrary number of variables and arrays, arbitrary array length~~ — done 2026-10-18.
 2. Refine `call_ok` to ignore variables bound by an enclosing `local` in the body (currently a
    body-local name counts as a global, which is conservative: it rejects some harmless calls).
 3. `bstep_fun` (via `bstep_is_fwd_of_inv`) and extraction of `step_fun` into `../extraction.v`.
