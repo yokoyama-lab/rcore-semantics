@@ -1,18 +1,18 @@
 # Janus control-token semantics: the rule table
 
-> **要旨（日本語）** R-CORE の制御トークン（•）小ステップ意味論を、除算を除いた Janus コア（配列・参照渡しの手続き引数・local/delocal を含む。2026-09-24〜25 追加）へ拡張したときの全 31 規則を一覧にする。
+> **要旨（日本語）** R-CORE の制御トークン（•）小ステップ意味論を、Janus コア（配列・参照渡しの手続き引数・local/delocal を含む。2026-09-24〜25 追加。`/` `%` `<=` `>=` と部分的な式評価は 2026-10-18 追加）へ拡張したときの全 31 規則を一覧にする。
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-09-26, updated after the PRO pre-submission review): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 98 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-10-18, partial expression evaluation): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 107 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
 ## 1. Scope and syntax
 
-The language is the Janus core of Lanese–Vidal (RC 2026), arrays included, minus the partial
-operators `/` and `%`, **plus** call-by-reference procedure parameters and `local`/`delocal`
-blocks (neither of which Lanese–Vidal treat). Values are `Z`
+The language is the Janus core of Lanese–Vidal (RC 2026), arrays and the whole operator set of
+their Fig. 1 included (`/` `%` `<=` `>=` since 2026-10-18), **plus** call-by-reference procedure
+parameters and `local`/`delocal` blocks (neither of which Lanese–Vidal treat). Values are `Z`
 (Rocq `Z`), truth is "nonzero". Variables are `X0..X9`, realized as `Fin.t 10` exactly as in
 `proofs.v`; arrays are `A0..A3` (`Fin.t 4`), each of fixed length `asize = 8`. A store is the
 record `{sv : Vector.t Z 10; sa : Vector.t (Vector.t Z asize) 4}`, so store extensionality stays
@@ -21,8 +21,8 @@ a theorem (`store_ext`, `vec_ext`), no axiom.
 ```
 e ::= n                       constant (Z)
     | x                       variable (Fin.t 10)
-    | e1 ⊕ e2                 ⊕ ∈ { + , - , * , xor , & , | , < , > , = , != , && , || }
-    | a[e]                    array read (Eidx a e); out of bounds reads 0
+    | e1 ⊕ e2                 ⊕ ∈ { + , - , * , / , % , xor , & , | , < , > , <= , >= , = , != , && , || }
+    | a[e]                    array read (Eidx a e); out of bounds: no value
 
 s ::= skip                                        Sskip
     | x op= e        op ∈ { += , -= , ^= }         Sass x op e     (op : Uadd | Usub | Uxor)
@@ -68,15 +68,34 @@ place where being stuck depends on a data value rather than on a guard.
 the cell is updated with `op`, otherwise the configuration is stuck
 (`j_array_out_of_bounds_stuck`). Well-formedness requires that `a` occur in neither `e1` nor
 `e2` (`anf_expr`, `wf_Saass`) — Janus's rule. `inv` inverts `op` and keeps the index.
-*Deviation:* an out-of-bounds **read** `a[e]` inside an expression yields 0 instead of being an
-error, which keeps `eval` total (as in the rest of this file); making it partial is the same work
-as adding `/` and `%` (§7 item 4).
+An out-of-bounds **read** `a[e]` inside an expression has no value (below); until 2026-10-18 it
+yielded 0, a documented deviation from Janus that is now gone (`j_oob_read_stuck`).
 
-Expression evaluation `eval s e : Z` is **total** (every operator is total on `Z`; the
-comparison and logical operators return 0/1). It is **not** reversible, and is not meant to
-be: like Lanese–Vidal (their footnote 1), an expression is evaluated in one step. This is a
-deliberate departure from R-CORE, where `⊙` is partial and its partiality is what the
-determinism proofs have to fight.
+**Expression evaluation is partial** (since 2026-10-18): `eval s e : option Z`. Division and
+remainder by zero and an out-of-bounds read have no value (`None`); every other operator is total
+on `Z` (comparisons and logical operators return 0/1). Evaluation is **strict**: an operator
+applies only when both operands have a value, `&&` and `||` included, as in the big-step rules of
+Lanese–Vidal's Fig. 2 (`σ ⊢ e1 ⇓ v1   σ ⊢ e2 ⇓ v2   ⟦⊙⟧(v1, v2) = v`). The reference interpreter
+jana short-circuits `&&`/`||`, so `0 && 1/0` is 0 there and stuck here (`j_strict_and_stuck`).
+`/` and `%` round towards −∞ (`Z.div`, `Z.modulo`), which is Haskell's `div`/`mod` used by jana
+(`j_div_run`: `7/2 = 3`, `−7/2 = −4`, `7 % −2 = −1`); jana reports division by zero as an error.
+A guard is read through `truth s e : option bool` (`Some true` iff `e` has a nonzero value). A
+rule that needs the value of an expression has a premise `eval s e = Some v` or
+`truth s e = Some b`, so an expression without a value makes the configuration **stuck**, like a
+failed assertion (`j_div_by_zero_stuck`, `j_until_error_stuck`, `j_delocal_error_stuck`;
+`stuck_of_step_fun_none` turns a `None` of the stepper into "no `jstep`").
+Evaluation is **not** reversible, and is not meant to be: like Lanese–Vidal (their footnote 1),
+an expression is evaluated in one step.
+
+Partiality does not reach reversibility. Every rule that evaluates an expression either leaves
+the store unchanged (guards) or changes only a location the expression does not read (`x ∉ e`,
+`x ∉ e1, e2`, `a ∉ e1, e2`, all part of well-formedness), so the expression has the same value —
+defined or not — before and after the step (`eval_update_invariant`, `eval_aupdate_invariant`,
+which are equalities of `option Z`). The inverse step therefore finds exactly the value the
+forward step used. The proofs of the general theorems use nothing about `eval` beyond this
+locality: the four partiality mutants of `make janus-mutants` (zero divisor yields 0, `/` rounds
+towards 0, out-of-bounds read yields 0, short-circuit `&&`) are caught only by the worked examples
+of §15e, never by a theorem of §§10–14a. The theorems hold for any choice of these conventions.
 
 Reversible update: `apply_upd op d v` is `d+v`, `d-v`, `d xor v`; `inv_upd` swaps `Uadd ↔ Usub`
 and fixes `Uxor`. `apply_upd (inv_upd op) (apply_upd op d v) v = d`, and
@@ -152,8 +171,9 @@ until-point of the original read backwards; with a single mid-point this identit
 ## 3. The rules of `jstep Γ`
 
 Configurations are pairs `(cs, s)` with `s : store`. In every rule the store is unchanged unless
-the target shows otherwise. Guards: "`e` true" means `eval s e <> 0`, "`e` false" means
-`eval s e = 0`. Kind: **data** (changes the store), **control** (tests a guard),
+the target shows otherwise. Guards: "`e` true" means `truth s e = Some true`, "`e` false" means
+`truth s e = Some false`; an expression without a value is neither, and the configuration is
+stuck. "`e` ⇓ `v`" means `eval s e = Some v`. Kind: **data** (changes the store), **control** (tests a guard),
 **administrative** (no guard, no store change, only moves the token), **congruence** (steps
 inside the hole). Assertion failures (`e2` false at the end of a then-branch, `e1` true after
 `s2`, …) have no rule: the configuration is stuck, as in Janus.
@@ -161,7 +181,7 @@ inside the hole). Assertion failures (`e2` false at the end of a then-branch, `e
 | # | Rule | Premise | Source configuration | Target configuration | Kind |
 |---|---|---|---|---|---|
 | 1 | `J_Skip` | — | `•skip` (`CS_pre Sskip`) | `skip•` (`CS_post Sskip`) | administrative |
-| 2 | `J_Asn` | — (total) | `•(x op= e), s` (`CS_pre (Sass x op e)`) | `(x op= e)•, s[x := apply_upd op (s x) (eval s e)]` (`CS_post (Sass x op e)`) | **data** |
+| 2 | `J_Asn` | `e` ⇓ `v` | `•(x op= e), s` (`CS_pre (Sass x op e)`) | `(x op= e)•, s[x := apply_upd op (s x) v]` (`CS_post (Sass x op e)`) | **data** |
 | 3 | `J_Seq_Enter` | — | `•(s1 ; s2)` (`CS_pre (Sseq s1 s2)`) | `⟨•s1⟩ ;▷ s2` (`CS_seq_L (CS_pre s1) s2`) | administrative |
 | 4 | `J_Seq_Mid` | — | `⟨s1•⟩ ;▷ s2` (`CS_seq_L (CS_post s1) s2`) | `s1 ◁; ⟨•s2⟩` (`CS_seq_R s1 (CS_pre s2)`) | administrative |
 | 5 | `J_Seq_Exit` | — | `s1 ◁; ⟨s2•⟩` (`CS_seq_R s1 (CS_post s2)`) | `(s1 ; s2)•` (`CS_post (Sseq s1 s2)`) | administrative |
@@ -187,10 +207,10 @@ inside the hole). Assertion failures (`e2` false at the end of a then-branch, `e
 | 25 | `J_Ctx_Loop_Loop` | `(cs, s) → (cs', s')` | `from e1 do s1 loop ⟨cs⟩ until e2, s` (`CS_loop_loop e1 s1 cs e2`) | `from e1 do s1 loop ⟨cs'⟩ until e2, s'` (`CS_loop_loop e1 s1 cs' e2`) | congruence |
 | 26 | `J_Ctx_Call` | `(cs, s) → (cs', s')` | `call p(ys) ⟨cs⟩, s` (`CS_call p ys cs`) | `call p(ys) ⟨cs'⟩, s'` (`CS_call p ys cs'`) | congruence |
 | 27 | `J_Ctx_Uncall` | `(cs, s) → (cs', s')` | `uncall p(ys) ⟨cs⟩, s` (`CS_uncall p ys cs`) | `uncall p(ys) ⟨cs'⟩, s'` (`CS_uncall p ys cs'`) | congruence |
-| 28 | `J_Local_Enter` | — | `•local x = e1; s; delocal x = e2`, `σ` | `CS_local x (σ x) e1 (CS_pre s) e2`, `σ[x ↦ eval σ e1]` | data |
-| 29 | `J_Local_Exit` | `σ x = eval σ e2` | `CS_local x v e1 (CS_post s) e2`, `σ` | `(local x = e1; s; delocal x = e2)•`, `σ[x ↦ v]` | data |
+| 28 | `J_Local_Enter` | `e1` ⇓ `w` | `•local x = e1; s; delocal x = e2`, `σ` | `CS_local x (σ x) e1 (CS_pre s) e2`, `σ[x ↦ w]` | data |
+| 29 | `J_Local_Exit` | `e2` ⇓ `σ x` | `CS_local x v e1 (CS_post s) e2`, `σ` | `(local x = e1; s; delocal x = e2)•`, `σ[x ↦ v]` | data |
 | 30 | `J_Ctx_Local` | `(cs, s) → (cs', s')` | `CS_local x v e1 cs e2, s` | `CS_local x v e1 cs' e2, s'` | congruence |
-| 31 | `J_AAsn` | `idx (eval σ e1) = Some i` | `•a[e1] op= e2`, `σ` | `(a[e1] op= e2)•`, `σ[a[i] ↦ σ(a[i]) op eval σ e2]` | data |
+| 31 | `J_AAsn` | `e1` ⇓ `z`, `idx z = Some i`, `e2` ⇓ `w` | `•a[e1] op= e2`, `σ` | `(a[e1] op= e2)•`, `σ[a[i] ↦ σ(a[i]) op w]` | data |
 
 Where `→` in a premise abbreviates `jstep Γ` for the same Γ. Counting: 1 data, 8 control,
 10 administrative, 8 congruence = 27, plus the local rules 28–30 (2 data, 1 congruence) = 30, plus the array rule 31 (data) = 31.
@@ -283,9 +303,12 @@ every base-vs-congruence pair (`no_step_to_pre`). `J_Asn` shares no pattern with
 needs `x ∉ e` to be injective on stores.
 
 Because the guards are evaluated in a store that the rule does not change, "true vs false in the
-same store" is a genuine dichotomy on `Z` (`eval s e <> 0` vs `eval s e = 0`); no partiality
-argument is needed anywhere, in contrast to `proofs.v` where the `S_Asn`/`S_Asn` case has to
-thread `eval_expr … = Some …` and `odot … = Some …` equations.
+same store" is a genuine exclusion: `truth s e` is a function, so `Some true` and `Some false`
+at the same `(s, e)` contradict each other (`congruence`); `None` satisfies neither premise. Since
+2026-10-18 the `J_Asn`, local and array cases thread `eval … = Some …` equations, as `proofs.v`
+does for `S_Asn`; the tactic `same_value` identifies two values of `eval`, `truth` or `idx` at the
+same argument, and `asn_step_injective` / `aasn_step_injective` / `local_exit_injective` take the
+values as hypotheses.
 
 ---
 
@@ -336,6 +359,9 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `exec_deterministic` | big-step determinism, derived from `jstep_deterministic` and terminality of `s•` (`jstar_deterministic_terminal`) | `ds_deterministic` |
 | `exec_inv`, `exec_inv_iff` | `wf_penv Γ -> wf_stmt s -> (exec Γ s σ σ' <-> exec Γ (inv s) σ' σ)` — correctness of the program inverter for the big-step semantics, **derived** from step-level reversibility: a run reverses position by position into a run of the inverse (`jstar_inv`, from `inv_step_reverses` and `wf_cs_step_preserved`) | — |
 | `run_jstar`, `exec_call_by_reference`, `exec_call_inverted` | the bounded runner produces `jstar` runs; a call-by-reference program as a big-step judgement, and its inverse via `exec_inv` | — |
+| `stuck_of_step_fun_none` | `step_fun Γ cs s = None -> forall cfg', ~ jstep Γ (cs, s) cfg'` (from `step_fun_correct`) | — |
+| `j_div_run`, `j_divmod_run`, `j_divmod_inverse` (Examples) | `/` `%` round towards −∞ and `<=` `>=` return 0/1; `X1 += X0 / 3; X2 += X0 % 3` from `X0 = 17` and its inverse | — |
+| `j_div_by_zero_stuck`, `j_oob_read_stuck`, `j_strict_and_stuck`, `j_until_error_stuck`, `j_delocal_error_stuck` (Examples) | an expression without a value (zero divisor, index 8 or −1, `0 && 1/0`) blocks an assignment, a guard at the until-point and a delocal assertion | — |
 | `nf_expr_dec`, `anf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` | decision procedures | `nf_expr_dec` (L419), `wf_cmd_dec` (L444), `wf_cc_dec` (L4365) |
 
 Why `wf_penv Γ` appears where `proofs.v` had nothing: `J_Call_Enter` and `J_Uncall_Enter` bring
@@ -364,8 +390,9 @@ Excluded from this core, in the order they should be added:
 3. ~~**Procedure parameters**~~ — **done 2026-09-24** (§1 "Parameters"): `Γ : pid -> proc`,
    `CS_call`/`CS_uncall` record the actuals, the body is instantiated by renaming, and the
    no-aliasing rule is the decidable side condition `call_ok`.
-4. **`/` and `%`**. Reintroduce partiality into `eval`, and with it the `Some`/`None` bookkeeping
-   that the present development avoids.
+4. ~~**`/` and `%`**~~ — **done 2026-10-18** (§1 "Expression evaluation is partial"):
+   `eval : store -> expr -> option Z`, with `<=` and `>=`, which had also been missing from the
+   operator set. Out-of-bounds reads are errors as well, so the read deviation is gone.
 
 Independent of the language extensions:
 

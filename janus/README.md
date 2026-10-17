@@ -3,7 +3,8 @@
 A control-token small-step semantics (`jstep Γ`) for a Janus core — `skip`, `+= -= ^=`,
 sequence, `if–fi`, `from–do–loop–until`, `call`/`uncall` with call-by-reference parameters
 against a procedure environment — extending the R-CORE semantics of `../proofs.v` to the fragment
-of Lanese–Vidal (RC 2026) with arrays and without `/` and `%`, plus parameters and
+of Lanese–Vidal (RC 2026) with arrays and their whole operator set (`/` and `%` included,
+with partial expression evaluation), plus parameters and
 `local`/`delocal` blocks (which Lanese–Vidal do not treat). Self-contained: it does
 not import `proofs.v`, but mirrors its proof architecture section by section.
 
@@ -12,11 +13,11 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
     make janus         # rocq c -Q . RCore janus/janus.v   (this is the proof)
     make janus-check   # kernel re-validation of RCore.janus.janus
     make janus-audit   # tools/audit.sh with SRC=janus/janus.v: no Admitted/Axiom, all Closed
-    make janus-mutants # tools/janus-mutants.py: 8 one-point mutants, each must fail in the expected proof
+    make janus-mutants # tools/janus-mutants.py: 12 one-point mutants, each must fail in the expected proof
 
 ## Files
 
-- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (98 results, axiom-free, Rocq 9.1.1).
+- `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (107 results, axiom-free, Rocq 9.1.1).
 - `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
@@ -31,21 +32,27 @@ Locals: `local_enter_injective`, `local_exit_injective`, `j_local_shadows`, `j_l
 `j_delocal_mismatch_stuck`, `local_bwd_needs_nf` (why `x ∉ e2` is required).
 
 Arrays: `aasn_step_injective`, `j_array_run`, `j_array_inverse`, `j_array_out_of_bounds_stuck`,
-`aasn_bwd_needs_anf` (why `a ∉ e2` is required). Out-of-bounds reads in expressions yield 0
-(documented deviation, `RULES.md` §1).
+`aasn_bwd_needs_anf` (why `a ∉ e2` is required).
 
 Big-step: `exec_iff_jstar` (the natural big-step semantics `exec` is exactly the runs of
 `jstep` from entry to exit), and as corollaries `exec_deterministic` and `exec_inv` /
 `exec_inv_iff` (the program inverter is correct for `exec`, derived from step-level
 reversibility).
 
-Excluded for now: `/` and `%` (and, with them, partial expression evaluation).
+Partial evaluation (2026-10-18): `eval : store -> expr -> option Z`. Division and remainder by
+zero and out-of-bounds reads have no value, and a rule that needs that value does not apply
+(the configuration is stuck): `j_div_by_zero_stuck`, `j_oob_read_stuck`, `j_until_error_stuck`,
+`j_delocal_error_stuck`, via `stuck_of_step_fun_none`. Evaluation is strict (`j_strict_and_stuck`;
+jana short-circuits `&&`), `/` and `%` round towards minus infinity as in jana (`j_div_run`),
+and the inverse program undoes division (`j_divmod_inverse`). No theorem statement changed:
+the expression read by a step is unaffected by the step's own update (`x ∉ e`, `a ∉ e`), so
+partiality never reaches the backward direction (`RULES.md` §1).
 
 ## Resume notes
 
 Next steps, in priority order (details in `RULES.md` §7):
 
-1. Partial `eval` (`/`, `%`, out-of-bounds reads as errors): `eval : store -> expr -> option Z`.
+1. ~~Partial `eval` (`/`, `%`, out-of-bounds reads as errors)~~ — done 2026-10-18.
 2. Refine `call_ok` to ignore variables bound by an enclosing `local` in the body (currently a
    body-local name counts as a global, which is conservative: it rejects some harmless calls).
 3. `bstep_fun` (via `bstep_is_fwd_of_inv`) and extraction of `step_fun` into `../extraction.v`.
