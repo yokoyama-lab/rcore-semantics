@@ -293,3 +293,35 @@ conference proceedings were not searched.
   - `docs/40_findings.md` L50–62; `docs/50_forward_citations.md` L110–118;
     `docs/40_discrepancies.md` L94; `docs/forward/core.md` L260–290, L329–352, L394,
     L426–435, L490–494, L542–545.
+
+---
+
+## 6. Mechanized comparison: `lv.v` (2026-10-18)
+
+Their figures were read from the proceedings PDF (LNCS Figs. 8, 9, 11, 12, 14, 15) and the
+arXiv v2 PDF (Figs. 9, 10, 12, 13, 16, 17); the rules are identical in the two versions.
+`janus/lv.v` defines their configurations ⟨σ, ℓ, ℓ′, π⟩ and both rule sets over the fragment
+shared with `janus.v` (no locals, no parameters). A label is the position of its block — root
+(main, procedure q, or q⁻¹) and path — so labels are unique and `block`, `ctx`, `entry`, `exit`,
+`flow` are functions of the syntax; a stack element loop1(ℓ1, s1, ℓ2, s2) keeps its two labels.
+
+**Simulation.** `phi` reads ⟨ℓ, ℓ′, π⟩ off a token position (next label from the position, last
+label and stack from the context spine). `lv_fwd_sim`: every `jstep` either leaves `phi`
+unchanged (the five administrative rules) or is one forward step ⇀; `lv_bwd_sim`: under `wf_cs`,
+read backwards it is one backward step ↽. Both hold for the printed and the repaired rules.
+`exec_lv`: a big-step execution of main is a ⇀-run from ⟨σ, start, entry(main), []⟩ to
+⟨σ′, exit(main), stop, []⟩ and a ↽-run back — their Lemma 1 (LNCS; arXiv Lemma 3), "only if",
+from any store. **Open:** the converse (every step of the repaired machine from a `phi`-image is
+matched by token steps); it needs the uniqueness of CFG successors at exits.
+
+**Errata (machine-checked examples).** Read literally:
+
+| | Rule (LNCS fig.) | As printed | Consequence | Example in `lv.v` | Repair |
+|---|---|---|---|---|---|
+| E1 | forward LoopBase (Fig. 12) | ℓ′2 ≠ entry(s1) | entry(s1) is never a successor of ℓ2, so LoopBase may go to entry(s2) and drop loop1: `from 1 do skip loop Y += 1 until 1` stops with Y = 0 and with Y = 1 (Janus: Y = 0 only), against their Lemma 1 | `e1_printed_two_results`, `e1_janus_one_result` | ℓ′2 ≠ entry(s2) (`e1_fixed_no_escape`) |
+| E2 | forward LoopMain (Fig. 12) | no condition on ℓ | at the iteration point (ℓ = exit(s2), loop2 on top) a true e1 re-enters the loop where Janus and their stack semantics (Fig. 5) are stuck; the step has no ↽-inverse, so their Loop Lemma (LNCS Lemma 2, arXiv Lemma 5) fails at a reachable configuration of `from Y = 0 do skip loop skip until Y = 1` | `e2_printed_loop_lemma_fails` | ℓ ≠ exit(s2), as in their backward LoopMain (`e2_fixed_stuck`) |
+| E3 | backward AssVar, AssArr, Skip (Fig. 14) | premise ℓ″ −1→ ℓ′, ℓ free | the recovered last label is arbitrary; from the final configuration of `Y += 1; skip` the backward run can get stuck before undoing `Y += 1` | `e3_printed_backward_lost` | also ℓ −→ ℓ′, as in backward Call (`e3_fixed_rejects`) |
+
+E1 and E3 look like typos (entry(s1) for entry(s2); ℓ″ −1→ ℓ′ for ℓ′ −1→ ℓ). E2 is a missing
+side condition: the backward LoopMain has it, the forward one does not.
+
