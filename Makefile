@@ -1,6 +1,6 @@
 ROCQ ?= rocq
 
-.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants clean
+.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants janus-lv janus-lv-check janus-lv-audit clean
 
 all: proofs.vo
 
@@ -61,6 +61,19 @@ janus-audit:
 # expected proof fails; see tools/janus-mutants.py and the paper's Table 5.
 janus-mutants:
 	ROCQ=$(ROCQ) python3 tools/janus-mutants.py
+
+# The program-counter semantics of Lanese and Vidal (RC 2026) and its
+# relation to janus/janus.v, with three errata of the published rules.
+janus-lv: janus/lv.vo
+
+janus/lv.vo: janus/lv.v janus/janus.vo
+	$(ROCQ) c -Q . RCore janus/lv.v
+
+janus-lv-check: janus/lv.vo
+	$(ROCQ) check -Q . RCore RCore.janus.lv
+
+janus-lv-audit: janus/janus.vo
+	SRC=janus/lv.v ROCQ=$(ROCQ) ./tools/audit.sh
 
 clean:
 	rm -f *.vo *.vos *.vok *.glob .*.aux .lia.cache

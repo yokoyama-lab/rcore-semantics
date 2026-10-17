@@ -586,3 +586,551 @@ Proof.
 Qed.
 
 End Errata.
+(* ================================================================= *)
+(* 5. From token positions to configurations                          *)
+(* ================================================================= *)
+
+Section Sim.
+Context {nv na asize : nat}.
+
+Local Notation stmt := (@janus.stmt nv na).
+Local Notation store := (@janus.store nv na asize).
+Local Notation penv := (@janus.penv nv na).
+Local Notation cont_stmt := (@janus.cont_stmt nv na).
+Local Notation lvcfg := (@lvcfg nv na asize).
+
+Variables (Γ : penv) (main : stmt).
+
+Local Notation rstmt := (rstmt Γ main).
+Local Notation edge := (edge Γ main).
+
+(* phi r P pred succ stk cs: the control <l, l', pi> of the configuration
+   whose token sits at cs, where cs is the statement at path P of root r,
+   pred is the label executed just before entering it, succ the label
+   that follows it, and stk the stack of the enclosing constructs.  The
+   last executed label and the stack are read off the context spine of
+   the token, the next label off its position. *)
+Fixpoint phi (r : root) (P : path) (pred succ : label) (stk : list frame)
+             (cs : cont_stmt) : label * label * list frame :=
+  match cs with
+  | CS_pre st => (pred, (r, pfx P (entry_pt st)), stk)
+  | CS_post st => ((r, pfx P (exit_pt st)), succ, stk)
+  | CS_seq_L c s2 => phi r (P ++ [DL]) pred (r, pfx (P ++ [DR]) (entry_pt s2)) stk c
+  | CS_seq_R s1 c => phi r (P ++ [DR]) (r, pfx (P ++ [DL]) (exit_pt s1)) succ stk c
+  | CS_if_then _ c _ _ =>
+      phi r (P ++ [DThen]) (r, PT1 P) (r, PT2 P) (Fift (r, PT1 P) (r, PT2 P) :: stk) c
+  | CS_if_else _ _ c _ =>
+      phi r (P ++ [DElse]) (r, PT1 P) (r, PT2 P) (Fiff (r, PT1 P) (r, PT2 P) :: stk) c
+  | CS_loop_from _ s1 _ _ =>
+      ((r, PT1 P), (r, pfx (P ++ [DDo]) (entry_pt s1)), Floop1 (r, PT1 P) (r, PT2 P) :: stk)
+  | CS_loop_do _ c _ _ =>
+      phi r (P ++ [DDo]) (r, PT1 P) (r, PT2 P) (Floop1 (r, PT1 P) (r, PT2 P) :: stk) c
+  | CS_loop_until _ s1 _ _ =>
+      ((r, pfx (P ++ [DDo]) (exit_pt s1)), (r, PT2 P), Floop1 (r, PT1 P) (r, PT2 P) :: stk)
+  | CS_loop_loop _ _ c _ =>
+      phi r (P ++ [DLoop]) (r, PT2 P) (r, PT1 P) (Floop2 (r, PT1 P) (r, PT2 P) :: stk) c
+  | CS_call q _ c =>
+      phi (RProc q) [] (RProc q, PStart) (RProc q, PStop) (Fcall (r, PBlk P) :: stk) c
+  | CS_uncall q _ c =>
+      phi (RInv q) [] (RInv q, PStart) (RInv q, PStop) (Funcall (r, PBlk P) :: stk) c
+  | CS_local _ _ _ c _ => phi r P pred succ stk c          (* outside the fragment *)
+  end.
+
+Definition to_cfg (s : store) (t : label * label * list frame) : lvcfg :=
+  let '(a, b, k) := t in mkcfg s a b k.
+
+(* The whole program: the token in main, which runs from start to stop. *)
+Definition Phi (cs : cont_stmt) (s : store) : lvcfg :=
+  to_cfg s (phi RMain [] (RMain, PStart) (RMain, PStop) [] cs).
+
+(* The fragment the two languages share: no local blocks, no arguments. *)
+Inductive frag : stmt -> Prop :=
+  | fr_skip : frag Sskip
+  | fr_ass : forall x op e, frag (Sass x op e)
+  | fr_aass : forall a e1 op e2, frag (Saass a e1 op e2)
+  | fr_seq : forall a b, frag a -> frag b -> frag (Sseq a b)
+  | fr_if : forall e1 a b e2, frag a -> frag b -> frag (Sif e1 a b e2)
+  | fr_loop : forall e1 a b e2, frag a -> frag b -> frag (Sloop e1 a b e2)
+  | fr_call : forall q, frag (Scall q [])
+  | fr_uncall : forall q, frag (Suncall q []).
+
+Definition lv_penv : Prop := forall q, formals (Γ q) = [] /\ frag (body (Γ q)).
+
+(* Token positions in the fragment whose call frames run the procedure
+   bodies (as every reachable position does, cs_ok_step below). *)
+Inductive cs_ok : cont_stmt -> Prop :=
+  | ok_pre : forall st, frag st -> cs_ok (CS_pre st)
+  | ok_post : forall st, frag st -> cs_ok (CS_post st)
+  | ok_seq_L : forall c b, cs_ok c -> frag b -> cs_ok (CS_seq_L c b)
+  | ok_seq_R : forall a c, frag a -> cs_ok c -> cs_ok (CS_seq_R a c)
+  | ok_if_then : forall e1 c b e2, cs_ok c -> frag b -> cs_ok (CS_if_then e1 c b e2)
+  | ok_if_else : forall e1 a c e2, frag a -> cs_ok c -> cs_ok (CS_if_else e1 a c e2)
+  | ok_loop_from : forall e1 a b e2, frag a -> frag b -> cs_ok (CS_loop_from e1 a b e2)
+  | ok_loop_do : forall e1 c b e2, cs_ok c -> frag b -> cs_ok (CS_loop_do e1 c b e2)
+  | ok_loop_until : forall e1 a b e2, frag a -> frag b -> cs_ok (CS_loop_until e1 a b e2)
+  | ok_loop_loop : forall e1 a c e2, frag a -> cs_ok c -> cs_ok (CS_loop_loop e1 a c e2)
+  | ok_call : forall q c, top c = body (Γ q) -> cs_ok c -> cs_ok (CS_call q [] c)
+  | ok_uncall : forall q c, top c = inv (body (Γ q)) -> cs_ok c -> cs_ok (CS_uncall q [] c).
+
+(* A label lies outside the subtree at path P of root r. *)
+Definition outside (r : root) (P : path) (l : label) : Prop :=
+  fst l <> r \/ forall q, path_of (snd l) <> Some (P ++ q).
+
+(* The context of a token position agrees with the program: st is the
+   statement at P, pred -> entry(st) and exit(st) -> succ are edges, and
+   pred and succ lie outside st. *)
+Record frame_ok (r : root) (P : path) (pred succ : label) (st : stmt) : Prop := {
+  fo_node : node (rstmt r) P = Some st;
+  fo_in : edge pred (r, pfx P (entry_pt st));
+  fo_out : edge (r, pfx P (exit_pt st)) succ;
+  fo_pred : outside r P pred;
+  fo_succ : outside r P succ }.
+
+(* ---- 5a. Paths ---- *)
+
+Lemma pfx_app : forall P Q x, pfx P (pfx Q x) = pfx (P ++ Q) x.
+Proof. intros P Q [p|p|p| |]; simpl; rewrite ?app_assoc; reflexivity. Qed.
+
+Lemma pfx_nil : forall x, pfx [] x = x.
+Proof. intros [p|p|p| |]; reflexivity. Qed.
+
+Lemma node_app :
+  forall P Q (st : stmt),
+    node st (P ++ Q) = match node st P with Some t => node t Q | None => None end.
+Proof.
+  induction P as [|d P IH]; intros Q st; [reflexivity |].
+  destruct d, st; simpl; try reflexivity; apply IH.
+Qed.
+
+Lemma node_snoc :
+  forall P d (st t : stmt), node st P = Some t -> node st (P ++ [d]) = node t [d].
+Proof. intros P d st t H. rewrite node_app, H. reflexivity. Qed.
+
+Lemma flow_lift :
+  forall P (st t : stmt) x y, node st P = Some t -> flow t x y -> flow st (pfx P x) (pfx P y).
+Proof.
+  induction P as [|d P IH]; intros st t x y Hn Hf.
+  - simpl in Hn. injection Hn as ->. rewrite !pfx_nil. exact Hf.
+  - change (d :: P) with ([d] ++ P). rewrite <- !pfx_app.
+    destruct d, st; simpl in Hn; try discriminate; constructor; eapply IH; eassumption.
+Qed.
+
+Lemma edge_lift :
+  forall r P t x y, node (rstmt r) P = Some t -> flow t x y -> edge (r, pfx P x) (r, pfx P y).
+Proof. intros. apply E_flow. eapply flow_lift; eassumption. Qed.
+
+Lemma outside_ext : forall r P Q l, outside r P l -> outside r (P ++ Q) l.
+Proof.
+  intros r P Q l [H | H]; [left; exact H | right; intros q Hq].
+  apply (H (Q ++ q)). rewrite app_assoc. exact Hq.
+Qed.
+
+Lemma outside_sib :
+  forall r P d d' x, d <> d' -> outside r (P ++ [d]) (r, pfx (P ++ [d']) x).
+Proof.
+  intros r P d d' x Hd. right. intros q Hq. simpl in Hq.
+  rewrite path_of_pfx in Hq. destruct (path_of x) as [p|]; [| discriminate].
+  injection Hq as Hq. rewrite <- !app_assoc in Hq. apply app_inv_head in Hq.
+  injection Hq as Hq _. congruence.
+Qed.
+
+Lemma outside_up : forall r P d, outside r (P ++ [d]) (r, PT1 P) /\ outside r (P ++ [d]) (r, PT2 P).
+Proof.
+  intros r P d. split; right; intros q Hq; simpl in Hq; injection Hq as Hq;
+    apply (f_equal (@length dir)) in Hq; rewrite !length_app in Hq; simpl in Hq; lia.
+Qed.
+
+Lemma outside_neq :
+  forall r P l Q x, outside r P l -> path_of x <> None -> l <> (r, pfx (P ++ Q) x).
+Proof.
+  intros r P l Q x [H | H] Hx Heq; subst l; simpl in H; [congruence |].
+  rewrite path_of_pfx in H. destruct (path_of x) as [p|] eqn:E; [| contradiction].
+  apply (H (Q ++ p)). simpl. rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma outside_root : forall r P q x, r <> q -> outside r P (q, x).
+Proof. intros. left. simpl. congruence. Qed.
+
+Lemma outside_nopath : forall r P l, path_of (snd l) = None -> outside r P l.
+Proof. intros r P l H. right. intros q Hq. congruence. Qed.
+
+(* ---- 5b. Frames of the sub-positions ---- *)
+
+Lemma fo_root : forall r, frame_ok r [] (r, PStart) (r, PStop) (rstmt r).
+Proof.
+  intro r. constructor.
+  - reflexivity.
+  - rewrite pfx_nil. apply E_start.
+  - rewrite pfx_nil. apply E_stop.
+  - apply outside_nopath; reflexivity.
+  - apply outside_nopath; reflexivity.
+Qed.
+
+Lemma fo_seq_L :
+  forall r P pred succ a b, frame_ok r P pred succ (Sseq a b) ->
+    frame_ok r (P ++ [DL]) pred (r, pfx (P ++ [DR]) (entry_pt b)) a.
+Proof.
+  intros r P pred succ a b [Hn Hi Ho Hp Hs]. constructor.
+  - rewrite (node_snoc _ _ _ Hn). reflexivity.
+  - simpl in Hi. rewrite pfx_app in Hi. exact Hi.
+  - rewrite <- !pfx_app. eapply edge_lift; [exact Hn | apply F_Seq].
+  - apply outside_ext; exact Hp.
+  - apply outside_sib; discriminate.
+Qed.
+
+Lemma fo_seq_R :
+  forall r P pred succ a b, frame_ok r P pred succ (Sseq a b) ->
+    frame_ok r (P ++ [DR]) (r, pfx (P ++ [DL]) (exit_pt a)) succ b.
+Proof.
+  intros r P pred succ a b [Hn Hi Ho Hp Hs]. constructor.
+  - rewrite (node_snoc _ _ _ Hn). reflexivity.
+  - rewrite <- !pfx_app. eapply edge_lift; [exact Hn | apply F_Seq].
+  - simpl in Ho. rewrite pfx_app in Ho. exact Ho.
+  - apply outside_sib; discriminate.
+  - apply outside_ext; exact Hs.
+Qed.
+
+(* The two labels of a conditional or loop at P. *)
+Lemma pt1_at : forall P, pfx P (PT1 []) = PT1 P.
+Proof. intro P. simpl. rewrite app_nil_r. reflexivity. Qed.
+Lemma pt2_at : forall P, pfx P (PT2 []) = PT2 P.
+Proof. intro P. simpl. rewrite app_nil_r. reflexivity. Qed.
+
+Lemma fo_then :
+  forall r P pred succ e1 a b e2, frame_ok r P pred succ (Sif e1 a b e2) ->
+    frame_ok r (P ++ [DThen]) (r, PT1 P) (r, PT2 P) a.
+Proof.
+  intros r P pred succ e1 a b e2 [Hn _ _ _ _]. constructor.
+  - rewrite (node_snoc _ _ _ Hn). reflexivity.
+  - rewrite <- (pt1_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_If_T1].
+  - rewrite <- (pt2_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_If_T2].
+  - apply outside_up.
+  - apply outside_up.
+Qed.
+
+Lemma fo_else :
+  forall r P pred succ e1 a b e2, frame_ok r P pred succ (Sif e1 a b e2) ->
+    frame_ok r (P ++ [DElse]) (r, PT1 P) (r, PT2 P) b.
+Proof.
+  intros r P pred succ e1 a b e2 [Hn _ _ _ _]. constructor.
+  - rewrite (node_snoc _ _ _ Hn). reflexivity.
+  - rewrite <- (pt1_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_If_E1].
+  - rewrite <- (pt2_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_If_E2].
+  - apply outside_up.
+  - apply outside_up.
+Qed.
+
+Lemma fo_do :
+  forall r P pred succ e1 a b e2, frame_ok r P pred succ (Sloop e1 a b e2) ->
+    frame_ok r (P ++ [DDo]) (r, PT1 P) (r, PT2 P) a.
+Proof.
+  intros r P pred succ e1 a b e2 [Hn _ _ _ _]. constructor.
+  - rewrite (node_snoc _ _ _ Hn). reflexivity.
+  - rewrite <- (pt1_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_Loop_1].
+  - rewrite <- (pt2_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_Loop_2].
+  - apply outside_up.
+  - apply outside_up.
+Qed.
+
+Lemma fo_loop :
+  forall r P pred succ e1 a b e2, frame_ok r P pred succ (Sloop e1 a b e2) ->
+    frame_ok r (P ++ [DLoop]) (r, PT2 P) (r, PT1 P) b.
+Proof.
+  intros r P pred succ e1 a b e2 [Hn _ _ _ _]. constructor.
+  - rewrite (node_snoc _ _ _ Hn). reflexivity.
+  - rewrite <- (pt2_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_Loop_3].
+  - rewrite <- (pt1_at P), <- pfx_app. eapply edge_lift; [exact Hn | apply F_Loop_4].
+  - apply outside_up.
+  - apply outside_up.
+Qed.
+
+(* ---- 5c. One token step is zero or one machine step ---- *)
+
+Lemma inst_nil : lv_penv -> forall q, inst (Γ q) [] = body (Γ q).
+Proof. intros H q. unfold inst. rewrite (proj1 (H q)). exact (rename_id _). Qed.
+
+Lemma stmt_at_P :
+  forall r P (st : stmt), node (rstmt r) P = Some st -> stmt_at Γ main (r, PBlk P) = Some st.
+Proof. intros r P st H. exact H. Qed.
+
+Lemma test2_at :
+  forall r P e1 (a b : stmt) e2,
+    node (rstmt r) P = Some (Sif e1 a b e2) \/ node (rstmt r) P = Some (Sloop e1 a b e2) ->
+    test_at Γ main (r, PT1 P) = Some e1 /\ test_at Γ main (r, PT2 P) = Some e2.
+Proof. intros r P e1 a b e2 [H | H]; unfold test_at; simpl; rewrite H; split; reflexivity. Qed.
+
+Lemma frag_inv : forall st, frag st -> frag (inv st).
+Proof. intros st H; induction H; simpl; constructor; assumption. Qed.
+
+Ltac not_frag :=
+  match goal with
+  | [ H : cs_ok (CS_local _ _ _ _ _) |- _ ] => inversion H
+  | [ H : cs_ok (CS_pre (Slocal _ _ _ _)) |- _ ] =>
+      let H' := fresh in inversion H as [? H' | | | | | | | | | | |]; subst; inversion H'
+  end.
+
+(* The administrative token steps (sequence enter/mid/exit, loop do and
+   do-done) leave the configuration unchanged; every other step is one
+   step of the machine, as printed or repaired. *)
+Theorem lv_fwd_sim :
+  forall fixed, lv_penv ->
+  forall cfg cfg', jstep Γ cfg cfg' ->
+  forall r P pred succ stk,
+    frame_ok r P pred succ (top (fst cfg)) -> cs_ok (fst cfg) ->
+    (snd cfg = snd cfg' /\ phi r P pred succ stk (fst cfg) = phi r P pred succ stk (fst cfg'))
+    \/ lvf Γ main fixed (to_cfg (snd cfg) (phi r P pred succ stk (fst cfg)))
+                        (to_cfg (snd cfg') (phi r P pred succ stk (fst cfg'))).
+Proof.
+  intros fixed HΓ cfg cfg' H; induction H; intros r P pred succ stk Hf Hok; simpl in *;
+    try not_frag.
+  (* congruence rules: the inner position, in the inner frame *)
+  all: try (apply IHjstep; inversion Hok; subst;
+            first [ eapply fo_seq_L; eassumption | eapply fo_seq_R; eassumption
+                  | eapply fo_then; eassumption | eapply fo_else; eassumption
+                  | eapply fo_do; eassumption | eapply fo_loop; eassumption
+                  | assumption
+                  | match goal with
+                    | [ Ht : top _ = _ |- _ ] => rewrite Ht; apply fo_root
+                    end ]; fail).
+  all: try (apply IHjstep; inversion Hok; subst; assumption; fail).
+  all: destruct Hf as [Hn Hi Ho Hp Hs].
+  (* administrative steps *)
+  all: try (left; split; [reflexivity | rewrite ?pfx_app; reflexivity]; fail).
+  all: right; simpl in Hi, Ho; rewrite ?app_nil_r in *.
+  - apply LF_Skip; [apply stmt_at_P; exact Hn | exact Ho].
+  - eapply LF_AssVar; [apply stmt_at_P; exact Hn | exact H | exact Ho].
+  - eapply LF_IfTrue1; [exact Hn | exact H].
+  - eapply LF_IfFalse1; [exact Hn | exact H].
+  - eapply LF_IfTrue2; [unfold test_at; simpl; rewrite Hn; reflexivity | exact H | exact Ho].
+  - eapply LF_IfFalse2; [unfold test_at; simpl; rewrite Hn; reflexivity | exact H | exact Ho].
+  - eapply LF_LoopMain; [exact Hn | exact H |].
+    intros _. apply outside_neq; [exact Hp | apply path_exit].
+  - eapply LF_LoopBase; [exact Hn | exact H | exact Ho |].
+    destruct fixed; (apply outside_neq; [exact Hs | apply path_entry]).
+  - eapply LF_Loop1; [exact Hn | exact H].
+  - eapply LF_Loop2; [exact Hn | exact H].
+  - inversion Hok as [? Hfr | | | | | | | | | | |]; subst; inversion Hfr; subst.
+    rewrite pfx_nil, (inst_nil HΓ).
+    apply LF_Call; [apply stmt_at_P; exact Hn | exact (E_start Γ main (RProc p))].
+  - inversion Hok; subst. apply LF_Return1. exact Ho.
+  - inversion Hok as [? Hfr | | | | | | | | | | |]; subst; inversion Hfr; subst.
+    rewrite pfx_nil, (inst_nil HΓ).
+    apply LF_UnCall; [apply stmt_at_P; exact Hn | exact (E_start Γ main (RInv p))].
+  - inversion Hok; subst. apply LF_Return2. exact Ho.
+  - eapply LF_AssArr; [apply stmt_at_P; exact Hn | eassumption | eassumption | eassumption | exact Ho].
+Qed.
+
+(* Forms of the backward assignment rules whose recovered store is given
+   by an equation. *)
+Lemma lb_assvar :
+  forall fixed (s s0 : store) l l' l'' x op e v π,
+    stmt_at Γ main l' = Some (Sass x op e) -> eval s e = Some v -> edge l' l'' ->
+    (fixed = true -> edge l l') -> s0 = update s x (apply_upd (inv_upd op) (s x) v) ->
+    lvb Γ main fixed (mkcfg s l' l'' π) (mkcfg s0 l l' π).
+Proof. intros; subst; eapply LB_AssVar; eassumption. Qed.
+
+Lemma lb_assarr :
+  forall fixed (s s0 : store) l l' l'' a e1 op e2 z i w π,
+    stmt_at Γ main l' = Some (Saass a e1 op e2) ->
+    eval s e1 = Some z -> idx z = Some i -> eval s e2 = Some w -> edge l' l'' ->
+    (fixed = true -> edge l l') ->
+    s0 = aupdate s a i (apply_upd (inv_upd op) (aget s a i) w) ->
+    lvb Γ main fixed (mkcfg s l' l'' π) (mkcfg s0 l l' π).
+Proof. intros; subst; eapply LB_AssArr; eassumption. Qed.
+
+(* Each non-administrative token step, read backwards, is one backward
+   step of the machine (as printed or repaired).  Well-formedness is
+   needed where inv_step_reverses needs it: to recover the store. *)
+Theorem lv_bwd_sim :
+  forall fixed, lv_penv ->
+  forall cfg cfg', jstep Γ cfg cfg' ->
+  forall r P pred succ stk,
+    frame_ok r P pred succ (top (fst cfg)) -> cs_ok (fst cfg) -> wf_cs (fst cfg) ->
+    (snd cfg = snd cfg' /\ phi r P pred succ stk (fst cfg) = phi r P pred succ stk (fst cfg'))
+    \/ lvb Γ main fixed (to_cfg (snd cfg') (phi r P pred succ stk (fst cfg')))
+                        (to_cfg (snd cfg) (phi r P pred succ stk (fst cfg))).
+Proof.
+  intros fixed HΓ cfg cfg' H; induction H; intros r P pred succ stk Hf Hok Hwf; simpl in *;
+    try not_frag.
+  all: try (apply IHjstep; inversion Hok; subst; inversion Hwf; subst;
+            first [ eapply fo_seq_L; eassumption | eapply fo_seq_R; eassumption
+                  | eapply fo_then; eassumption | eapply fo_else; eassumption
+                  | eapply fo_do; eassumption | eapply fo_loop; eassumption
+                  | assumption
+                  | match goal with
+                    | [ Ht : top _ = _ |- _ ] => rewrite Ht; apply fo_root
+                    end ]; fail).
+  all: try (apply IHjstep; inversion Hok; subst; inversion Hwf; subst; assumption; fail).
+  all: destruct Hf as [Hn Hi Ho Hp Hs].
+  all: try (left; split; [reflexivity | rewrite ?pfx_app; reflexivity]; fail).
+  all: right; simpl in Hi, Ho; rewrite ?app_nil_r in *.
+  - apply LB_Skip; [apply stmt_at_P; exact Hn | exact Ho | intros _; exact Hi].
+  - inversion Hwf as [? Hw | | | | | | | | | | | |]; subst; inversion Hw; subst.
+    eapply lb_assvar; [apply stmt_at_P; exact Hn | | exact Ho | intros _; exact Hi |].
+    + rewrite eval_update_invariant by assumption. exact H.
+    + rewrite update_eq, apply_upd_inv, update_cancel. reflexivity.
+  - eapply LB_IfTrue1; [unfold test_at; simpl; rewrite Hn; reflexivity | exact H | exact Hi].
+  - eapply LB_IfFalse1; [unfold test_at; simpl; rewrite Hn; reflexivity | exact H | exact Hi].
+  - eapply LB_IfTrue2; [exact Hn | exact H].
+  - eapply LB_IfFalse2; [exact Hn | exact H].
+  - eapply LB_LoopMain; [exact Hn | exact H | exact Hi |].
+    apply outside_neq; [exact Hp | apply path_exit].
+  - eapply LB_LoopBase; [exact Hn | exact H].
+  - eapply LB_Loop1; [exact Hn | exact H].
+  - eapply LB_Loop2; [exact Hn | exact H].
+  - inversion Hok as [? Hfr | | | | | | | | | | |]; subst; inversion Hfr; subst.
+    rewrite pfx_nil, (inst_nil HΓ).
+    apply LB_Call; [reflexivity | exact Hi].
+  - inversion Hok; subst. rewrite pfx_nil, (inst_nil HΓ).
+    apply LB_Return1; [apply stmt_at_P; exact Hn | exact (E_stop Γ main (RProc p))].
+  - inversion Hok as [? Hfr | | | | | | | | | | |]; subst; inversion Hfr; subst.
+    rewrite pfx_nil, (inst_nil HΓ).
+    apply LB_UnCall; [reflexivity | exact Hi].
+  - inversion Hok; subst. rewrite pfx_nil, (inst_nil HΓ).
+    apply LB_Return2; [apply stmt_at_P; exact Hn | exact (E_stop Γ main (RInv p))].
+  - inversion Hwf as [? Hw | | | | | | | | | | | |]; subst; inversion Hw; subst.
+    eapply lb_assarr; [apply stmt_at_P; exact Hn | | eassumption | | exact Ho
+                      | intros _; exact Hi |].
+    + rewrite eval_aupdate_invariant by assumption. eassumption.
+    + rewrite eval_aupdate_invariant by assumption. eassumption.
+    + rewrite aget_aupdate_eq, apply_upd_inv, aupdate_cancel. reflexivity.
+Qed.
+
+(* ---- 5d. Runs ---- *)
+
+Local Hint Constructors cs_ok frag : core.
+
+Lemma cs_ok_step :
+  lv_penv -> forall cfg cfg', @jstep nv na asize Γ cfg cfg' -> cs_ok (fst cfg) -> cs_ok (fst cfg').
+Proof.
+  intros HΓ cfg cfg' H; induction H; intros Hok; simpl in *; inversion Hok; subst;
+    repeat match goal with
+           | [ Hf : frag (Sseq _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Sif _ _ _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Sloop _ _ _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Scall _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Suncall _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hc : cs_ok (CS_post _) |- _ ] => inversion Hc; subst; clear Hc
+           end;
+    try (constructor; auto; fail).
+  all: try match goal with [ Hf : frag (Slocal _ _ _ _) |- _ ] => inversion Hf end.
+  all: try (constructor; [rewrite (top_step H); assumption | auto]; fail).
+  all: try (constructor; constructor; fail).
+  all: try (constructor; [simpl; apply inst_nil; exact HΓ
+                         | constructor; rewrite inst_nil by exact HΓ; apply HΓ]; fail).
+  all: try (constructor; [simpl; rewrite inst_nil by exact HΓ; reflexivity
+                         | constructor; rewrite inst_nil by exact HΓ; apply frag_inv, HΓ]; fail).
+Qed.
+
+Inductive lvb_star (fixed : bool) : lvcfg -> lvcfg -> Prop :=
+  | LBS_refl : forall c, lvb_star fixed c c
+  | LBS_step : forall c1 c2 c3, lvb Γ main fixed c1 c2 -> lvb_star fixed c2 c3 -> lvb_star fixed c1 c3.
+
+Lemma lvb_star_trans :
+  forall fixed c1 c2 c3, lvb_star fixed c1 c2 -> lvb_star fixed c2 c3 -> lvb_star fixed c1 c3.
+Proof. intros fixed c1 c2 c3 H; induction H; intros; [assumption | econstructor; eauto]. Qed.
+
+(* A run of the token semantics of main is a run of the machine forwards,
+   and the machine runs it backwards to where it started. *)
+Theorem lv_run :
+  forall fixed, lv_penv -> wf_penv Γ ->
+  forall c c', jstar Γ c c' ->
+    top (fst c) = main -> cs_ok (fst c) -> wf_cs (fst c) ->
+    lvf_star Γ main fixed (Phi (fst c) (snd c)) (Phi (fst c') (snd c'))
+    /\ lvb_star fixed (Phi (fst c') (snd c')) (Phi (fst c) (snd c)).
+Proof.
+  intros fixed HΓ HΓw c c' H; induction H as [c | c1 c2 c3 H12 H23 IH];
+    intros Htop Hok Hwf; [split; constructor |].
+  destruct c1 as [cs1 s1], c2 as [cs2 s2]; simpl in *.
+  assert (Hf : frame_ok RMain [] (RMain, PStart) (RMain, PStop) (top cs1))
+    by (rewrite Htop; apply (fo_root RMain)).
+  destruct IH as [IHf IHb].
+  - rewrite (top_step H12). exact Htop.
+  - exact (cs_ok_step HΓ H12 Hok).
+  - exact (wf_cs_step_preserved HΓw H12 Hwf).
+  - unfold Phi in *.
+    destruct (lv_fwd_sim fixed HΓ H12 [] Hf Hok) as [[Es Ep] | Hs];
+    destruct (lv_bwd_sim fixed HΓ H12 [] Hf Hok Hwf) as [[Es' Ep'] | Hb]; simpl in *.
+    + subst. rewrite Ep. split; assumption.
+    + subst. rewrite Ep. split; assumption.
+    + subst. rewrite <- Ep' in IHf. split; [| rewrite Ep'; assumption].
+      rewrite Ep' in Hs. simpl in Hs. exact IHf.
+    + split; [econstructor; eassumption |].
+      eapply lvb_star_trans; [exact IHb | econstructor; [exact Hb | constructor]].
+Qed.
+
+(* In particular, every big-step execution of main is a run of the machine
+   from <s, start, entry(main), []> to <s', exit(main), stop, []>, and back:
+   their Lemma 1 (LNCS; arXiv Lemma 3), "only if" direction, from any
+   store, together with its backward counterpart. *)
+Corollary exec_lv :
+  forall fixed, lv_penv -> wf_penv Γ -> frag main -> wf_stmt main ->
+  forall s s', exec Γ main s s' ->
+    lvf_star Γ main fixed (mkcfg s (RMain, PStart) (RMain, entry_pt main) [])
+                          (mkcfg s' (RMain, exit_pt main) (RMain, PStop) [])
+    /\ lvb_star fixed (mkcfg s' (RMain, exit_pt main) (RMain, PStop) [])
+                      (mkcfg s (RMain, PStart) (RMain, entry_pt main) []).
+Proof.
+  intros fixed HΓ HΓw Hfr Hwf s s' H.
+  apply exec_iff_jstar in H.
+  pose proof (lv_run fixed HΓ HΓw H eq_refl (ok_pre Hfr) (wf_cs_pre Hwf)) as R.
+  unfold Phi in R; simpl in R. rewrite !pfx_nil in R. exact R.
+Qed.
+
+End Sim.
+
+(* ================================================================= *)
+(* 6. Axiom audit                                                     *)
+(* ================================================================= *)
+
+(* tools/audit.sh (SRC=janus/lv.v) checks that this block lists every
+   result and that each prints "Closed under the global context". *)
+Print Assumptions path_of_pfx.
+Print Assumptions path_entry.
+Print Assumptions path_exit.
+Print Assumptions flow_paths.
+Print Assumptions s0_neq_s1.
+Print Assumptions e1_prefix.
+Print Assumptions e1_exit.
+Print Assumptions e1_escape.
+Print Assumptions e1_printed_two_results.
+Print Assumptions e1_janus_one_result.
+Print Assumptions e1_fixed_no_escape.
+Print Assumptions e2_reachable.
+Print Assumptions e2_printed_loop_lemma_fails.
+Print Assumptions e2_fixed_stuck.
+Print Assumptions e3_printed_backward_lost.
+Print Assumptions e3_fixed_rejects.
+Print Assumptions pfx_app.
+Print Assumptions pfx_nil.
+Print Assumptions node_app.
+Print Assumptions node_snoc.
+Print Assumptions flow_lift.
+Print Assumptions edge_lift.
+Print Assumptions outside_ext.
+Print Assumptions outside_sib.
+Print Assumptions outside_up.
+Print Assumptions outside_neq.
+Print Assumptions outside_root.
+Print Assumptions outside_nopath.
+Print Assumptions fo_root.
+Print Assumptions fo_seq_L.
+Print Assumptions fo_seq_R.
+Print Assumptions pt1_at.
+Print Assumptions pt2_at.
+Print Assumptions fo_then.
+Print Assumptions fo_else.
+Print Assumptions fo_do.
+Print Assumptions fo_loop.
+Print Assumptions inst_nil.
+Print Assumptions stmt_at_P.
+Print Assumptions test2_at.
+Print Assumptions frag_inv.
+Print Assumptions lv_fwd_sim.
+Print Assumptions lb_assvar.
+Print Assumptions lb_assarr.
+Print Assumptions lv_bwd_sim.
+Print Assumptions cs_ok_step.
+Print Assumptions lvb_star_trans.
+Print Assumptions lv_run.
+Print Assumptions exec_lv.
