@@ -338,6 +338,13 @@ for right-to-left even with the repairs (E4 below).
 
 | E4 | Loop Lemma (LNCS Lemma 3) | only the left configuration reachable | backward IfTrue2, LoopBase, Loop1, Loop2, LoopMain, IfTrue1, Call leave the next label of their source free, so for the reachable end of a then-branch of `if 1 then skip else skip fi 1` a configuration with next label start steps back to it, but no forward step goes there | `e4_loop_lemma_needs_both_reachable` | assume both configurations reachable (`lv_loop_lemma`) |
 
+**Prior reports (checked 2026-10-19).** None found. Semantic Scholar: arXiv:2602.16913 has 0
+citations (the LNCS DOI is not indexed); OpenAlex: the arXiv version is cited once, by the LNCS
+version itself, and the LNCS version 0 times; Crossref: no work registered as an update
+(erratum) of doi:10.1007/978-3-032-30839-9_11, `is-referenced-by-count` 0; arXiv: v2
+(2026-02-26) is still the latest version, and a cs.PL search for Janus finds nothing later; a
+web search for an erratum or correction finds nothing. Not searched: ACM DL, Google Scholar.
+
 E1 and E3 look like typos (entry(s1) for entry(s2); ℓ″ −1→ ℓ′ for ℓ′ −1→ ℓ). E2 is a missing
 side condition: the backward LoopMain has it, the forward one does not.
 
