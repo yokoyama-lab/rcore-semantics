@@ -320,6 +320,14 @@ Lemma 1 in both directions, from any store. The proof needs the repairs of E1 an
 either one breaks `complete_until` resp. `complete_cs` (checked on a copy without the examples),
 and `make janus-mutants` checks that each repair is caught by its example.
 
+**Loop Lemma (2026-10-19).** The backward machine is complete in the same sense (`bdec_cs`:
+every backward step from the configuration of a token is undone by a token step, using that a
+reachable token at the entry of a loop body has e2 false, `gok`). With `lv_loop_fwd` and
+`lv_loop_bwd` this gives `lv_loop_lemma`: for reachable tokens `cs`, `cs'`,
+`Phi cs s ⇀ Phi cs' s'` iff `Phi cs' s' ↽ Phi cs s`, for the repaired rules. Their statement
+(LNCS Lemma 3, arXiv Lemma 5) assumes only the left configuration reachable; that is too weak
+for right-to-left even with the repairs (E4 below).
+
 **Errata (machine-checked examples).** Read literally:
 
 | | Rule (LNCS fig.) | As printed | Consequence | Example in `lv.v` | Repair |
@@ -327,6 +335,8 @@ and `make janus-mutants` checks that each repair is caught by its example.
 | E1 | forward LoopBase (Fig. 12) | ℓ′2 ≠ entry(s1) | entry(s1) is never a successor of ℓ2, so LoopBase may go to entry(s2) and drop loop1: `from 1 do skip loop Y += 1 until 1` stops with Y = 0 and with Y = 1 (Janus: Y = 0 only), against their Lemma 1 | `e1_printed_two_results`, `e1_janus_one_result` | ℓ′2 ≠ entry(s2) (`e1_fixed_no_escape`) |
 | E2 | forward LoopMain (Fig. 12) | no condition on ℓ | at the iteration point (ℓ = exit(s2), loop2 on top) a true e1 re-enters the loop where Janus and their stack semantics (Fig. 5) are stuck; the step has no ↽-inverse, so their Loop Lemma (LNCS Lemma 3, arXiv Lemma 5) fails at a reachable configuration of `from Y = 0 do skip loop skip until Y = 1` | `e2_printed_loop_lemma_fails` | ℓ ≠ exit(s2), as in their backward LoopMain (`e2_fixed_stuck`) |
 | E3 | backward AssVar, AssArr, Skip (Fig. 14) | premise ℓ″ −1→ ℓ′, ℓ free | the recovered last label is arbitrary; from the final configuration of `Y += 1; skip` the backward run can get stuck before undoing `Y += 1` | `e3_printed_backward_lost` | also ℓ −→ ℓ′, as in backward Call (`e3_fixed_rejects`) |
+
+| E4 | Loop Lemma (LNCS Lemma 3) | only the left configuration reachable | backward IfTrue2, LoopBase, Loop1, Loop2, LoopMain, IfTrue1, Call leave the next label of their source free, so for the reachable end of a then-branch of `if 1 then skip else skip fi 1` a configuration with next label start steps back to it, but no forward step goes there | `e4_loop_lemma_needs_both_reachable` | assume both configurations reachable (`lv_loop_lemma`) |
 
 E1 and E3 look like typos (entry(s1) for entry(s2); ℓ″ −1→ ℓ′ for ℓ′ −1→ ℓ). E2 is a missing
 side condition: the backward LoopMain has it, the forward one does not.

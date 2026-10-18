@@ -43,7 +43,15 @@
   the repaired machine from the configuration of a token is matched by
   token steps (lv_complete_step, lv_complete_run), so that their Lemma 1
   holds in both directions and from any store (lv_lemma1); the proof uses
-  the repairs of E1 and E2 (make janus-mutants).
+  the repairs of E1 and E2 (make janus-mutants).  The same holds for the
+  backward machine (bdec_cs), and together they give their Loop Lemma for
+  the repaired rules between reachable configurations (lv_loop_lemma).
+    (E4) Their Loop Lemma assumes only the left-hand configuration
+         reachable.  Several backward rules (IfTrue2, LoopBase, Loop1, ...)
+         do not constrain the next label of their source, so from a
+         reachable c some unreachable c' steps back to c without c stepping
+         to c' (e4_loop_lemma_needs_both_reachable, printed and repaired
+         rules alike).  lv_loop_lemma assumes both sides reachable.
 
   Tested with Rocq 9.1.1.
 *)
@@ -1408,7 +1416,7 @@ Qed.
 (* ---- 7c. From a step of the machine back to token steps ---- *)
 
 Ltac kill_lv Hn Hstk :=
-  unfold stmt_at, test_at in *; simpl in *;
+  unfold stmt_at, test_at, is_start in *; simpl in *;
   repeat match goal with
          | [ E : node _ (_ ++ []) = _ |- _ ] => rewrite app_nil_r in E
          | [ E : context [match node _ (_ ++ []) with _ => _ end] |- _ ] => rewrite app_nil_r in E
@@ -2310,7 +2318,355 @@ Proof.
   apply IH. exact (gok_step H12 Hg).
 Qed.
 
+(* ---- 7i. From a backward step of the machine back to token steps ---- *)
+
+(* bdec cs s F d: some (k0, t0) steps once to (k1, s), from which
+   administrative steps (keeping the configuration of F) reach (cs, s),
+   and the configuration of k0 is d. *)
+Definition bdec (cs : cont_stmt) (s : store) r P pred succ stk (d : lvcfg) : Prop :=
+  exists k0 t0 k1, jstep Γ (k0, t0) (k1, s) /\ jstar Γ (k1, s) (cs, s)
+                   /\ phi r P pred succ stk k1 = phi r P pred succ stk cs
+                   /\ to_cfg t0 (phi r P pred succ stk k0) = d.
+
+Lemma bdec_one :
+  forall cs (s : store) k0 t0 r P pred succ stk d,
+    jstep Γ (k0, t0) (cs, s) -> to_cfg t0 (phi r P pred succ stk k0) = d ->
+    bdec cs s r P pred succ stk d.
+Proof. intros. exists k0, t0, cs. repeat split; auto. apply JS_refl. Qed.
+
+Lemma bdec_post :
+  forall cs cs1 (s : store) r P pred succ stk d,
+    jstar Γ (cs1, s) (cs, s) -> phi r P pred succ stk cs1 = phi r P pred succ stk cs ->
+    bdec cs1 s r P pred succ stk d -> bdec cs s r P pred succ stk d.
+Proof.
+  intros cs cs1 s r P pred succ stk d Hj Hp [k0 [t0 [k1 [Hs [Hj1 [Hp1 Hd]]]]]].
+  exists k0, t0, k1. repeat split; try assumption.
+  - eapply jstar_trans; eassumption.
+  - rewrite Hp1. exact Hp.
+Qed.
+
+Lemma bdec_lift :
+  forall (C : cont_stmt -> cont_stmt) r P pred succ stk r' P' pred' succ' stk',
+    (forall c (s : store) c' s', jstep Γ (c, s) (c', s') -> jstep Γ (C c, s) (C c', s')) ->
+    (forall c, phi r P pred succ stk (C c) = phi r' P' pred' succ' stk' c) ->
+    forall cs (s : store) d, bdec cs s r' P' pred' succ' stk' d -> bdec (C cs) s r P pred succ stk d.
+Proof.
+  intros C r P pred succ stk r' P' pred' succ' stk' HC HP cs s d [k0 [t0 [k1 [Hs [Hj [Hp Hd]]]]]].
+  exists (C k0), t0, (C k1). repeat split.
+  - apply HC. exact Hs.
+  - exact (lift_star C HC Hj).
+  - rewrite !HP. exact Hp.
+  - rewrite HP. exact Hd.
+Qed.
+
+Ltac blift C := eapply (bdec_lift C); [intros; constructor; assumption | intros; reflexivity |].
+
+(* Undoing an assignment: the store the backward rules compute is one the
+   forward rules map back. *)
+Lemma back_asn :
+  forall x op e (s : store) v, nf_expr x e -> eval s e = Some v ->
+    jstep Γ (CS_pre (Sass x op e), update s x (apply_upd (inv_upd op) (s x) v))
+            (CS_post (Sass x op e), s).
+Proof.
+  intros x op e s v Hnf Hv. eapply J_Asn'.
+  - rewrite eval_update_invariant by exact Hnf. exact Hv.
+  - pose proof (apply_upd_inv (inv_upd op) (s x) v) as A. rewrite inv_upd_involutive in A.
+    rewrite update_eq, A, update_shadow, update_same. reflexivity.
+Qed.
+
+Lemma back_aasn :
+  forall a e1 op e2 (s : store) z i w,
+    anf_expr a e1 -> anf_expr a e2 ->
+    eval s e1 = Some z -> idx z = Some i -> eval s e2 = Some w ->
+    jstep Γ (CS_pre (Saass a e1 op e2), aupdate s a i (apply_upd (inv_upd op) (aget s a i) w))
+            (CS_post (Saass a e1 op e2), s).
+Proof.
+  intros a e1 op e2 s z i w Ha1 Ha2 Hz Hi Hw. eapply J_AAsn'.
+  - rewrite eval_aupdate_invariant by exact Ha1. exact Hz.
+  - exact Hi.
+  - rewrite eval_aupdate_invariant by exact Ha2. exact Hw.
+  - pose proof (apply_upd_inv (inv_upd op) (aget s a i) w) as A. rewrite inv_upd_involutive in A.
+    rewrite aget_aupdate_eq, A. symmetry. apply aupdate_cancel.
+Qed.
+
+Ltac pred_blk Hr :=
+  match goal with
+  | [ He : true = true -> edge ?l (_, PBlk (_ ++ [])) |- _ ] =>
+      specialize (He eq_refl); rewrite (entry_pred_blk Hr eq_refl He)
+  end.
+
+Lemma bdec_post_shape :
+  lv_penv Γ -> forall (st : stmt) r P pred succ stk (s : store) d,
+    freach r P pred succ st -> stk_ok r P stk -> frag st -> wf_stmt st ->
+    lvb Γ main true (to_cfg s (phi r P pred succ stk (CS_post st))) d ->
+    bdec (CS_post st) s r P pred succ stk d.
+Proof.
+  intros HΓ st; induction st; intros r P pred succ stk s d Hr Hstk Hfr Hwf Hlv;
+    pose proof (fo_node (freach_ok Hr)) as Hn; simpl in Hlv.
+  - (* skip *)
+    inversion Hlv; subst; kill_lv Hn Hstk. pred_blk Hr.
+    eapply bdec_one; [apply J_Skip | reflexivity].
+  - (* assignment *)
+    inversion Hwf; subst. inversion Hlv; subst; kill_lv Hn Hstk. pred_blk Hr.
+    eapply bdec_one; [apply back_asn; eassumption | reflexivity].
+  - (* sequence: exit of the second statement *)
+    inversion Hfr; subst. inversion Hwf; subst. rewrite pfx_app in Hlv.
+    apply (bdec_post (cs1 := CS_seq_R st1 (CS_post st2)));
+      [apply jstar_one; apply J_Seq_Exit | simpl; rewrite pfx_app; reflexivity |].
+    blift (fun x : cont_stmt => CS_seq_R st1 x).
+    exact (IHst2 _ _ _ _ _ _ _ (FR_seq_R Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption)
+             ltac:(assumption) Hlv).
+  - (* conditional: the fi assertion *)
+    inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eapply bdec_one;
+      [ first [ apply J_Fi_True; assumption | apply J_Fi_False; assumption ]
+      | simpl; rewrite ?app_nil_r; reflexivity ].
+  - (* loop: the until test, exit *)
+    inversion Hlv; subst; kill_lv Hn Hstk.
+    eapply bdec_one; [apply J_Loop_Exit; assumption | simpl; rewrite ?app_nil_r; reflexivity].
+  - (* call *)
+    inversion Hfr; subst. inversion Hlv; subst; kill_lv Hn Hstk.
+    match goal with
+    | [ He : edge ?l (RProc _, PStop) |- _ ] => rewrite (stop_pred He)
+    end.
+    eapply bdec_one; [apply J_Call_Exit; apply call_ok_nil; exact HΓ |].
+    simpl. rewrite pfx_nil, (inst_nil HΓ), ?app_nil_r. reflexivity.
+  - (* uncall *)
+    inversion Hfr; subst. inversion Hlv; subst; kill_lv Hn Hstk.
+    match goal with
+    | [ He : edge ?l (RInv _, PStop) |- _ ] => rewrite (stop_pred He)
+    end.
+    eapply bdec_one; [apply J_Uncall_Exit; apply call_ok_nil; exact HΓ |].
+    simpl. rewrite pfx_nil, (inst_nil HΓ), ?app_nil_r. reflexivity.
+  - inversion Hfr.
+  - (* array assignment *)
+    inversion Hwf; subst. inversion Hlv; subst; kill_lv Hn Hstk. pred_blk Hr.
+    eapply bdec_one; [eapply back_aasn; eassumption | reflexivity].
+Qed.
+
+Lemma bdec_from :
+  lv_penv Γ -> forall e1 (a b : stmt) e2 r P pred succ stk (s : store) d,
+    freach r P pred succ (Sloop e1 a b e2) -> stk_ok r P stk ->
+    lvb Γ main true (to_cfg s (phi r P pred succ stk (CS_loop_from e1 a b e2))) d ->
+    bdec (CS_loop_from e1 a b e2) s r P pred succ stk d.
+Proof.
+  intros HΓ e1 a b e2 r P pred succ stk s d Hr Hstk Hlv.
+  pose proof (fo_node (freach_ok Hr)) as Hn. simpl in Hlv.
+  inversion Hlv; subst; kill_lv Hn Hstk.
+  - (* LoopMain: the loop was entered from outside *)
+    match goal with
+    | [ He : edge ?l (_, PT1 P), Hne : ?l <> _ |- _ ] =>
+        rewrite <- pt1_at in He;
+        destruct (entry_pred_loop Hr He) as [-> | E]; [| exfalso; apply Hne; exact E]
+    end.
+    eapply bdec_one; [apply J_Loop_Enter; assumption | simpl; rewrite ?app_nil_r; reflexivity].
+  - (* Loop2: an iteration ended *)
+    eapply bdec_one; [apply J_Loop_Iter2; assumption | reflexivity].
+Qed.
+
+Lemma bdec_cs :
+  lv_penv Γ -> forall cs r P pred succ stk (s : store) d,
+    freach r P pred succ (top cs) -> stk_ok r P stk -> cs_ok Γ cs -> wf_cs cs -> gok s cs ->
+    ~ at_entry cs ->
+    lvb Γ main true (to_cfg s (phi r P pred succ stk cs)) d ->
+    bdec cs s r P pred succ stk d.
+Proof.
+  intros HΓ cs;
+    induction cs as [st | st | cs IHcs b | a cs IHcs | e1 cs IHcs b e2 | e1 a cs IHcs e2
+                    | e1 a b e2 | e1 cs IHcs b e2 | e1 a b e2 | e1 a cs IHcs e2
+                    | q ys cs IHcs | q ys cs IHcs | x v e1 cs IHcs e2];
+    intros r P pred succ stk s d Hr Hstk Hok Hwf Hg Hne Hlv; simpl in Hr, Hg.
+  - exfalso. apply Hne. constructor.
+  - inversion Hok; subst. inversion Hwf; subst. eapply bdec_post_shape; eassumption.
+  - (* seq_L *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv.
+    assert (Hx : ~ at_entry cs) by (intro H; apply Hne; constructor; exact H).
+    blift (fun x : cont_stmt => CS_seq_L x b).
+    exact (IHcs _ _ _ _ _ _ _ (FR_seq_L Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption)
+             ltac:(assumption) Hg Hx Hlv).
+  - (* seq_R *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv. destruct (at_entry_dec cs) as [Hx | Hx].
+    + destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      lift (fun x : cont_stmt => CS_seq_R a x) Hj.
+      apply (bdec_post (cs1 := CS_seq_L (CS_post a) (top cs)));
+        [ eapply JS_step; [apply J_Seq_Mid | exact Hj]
+        | simpl; rewrite Hp; reflexivity |].
+      blift (fun x : cont_stmt => CS_seq_L x (top cs)).
+      exact (bdec_post_shape HΓ (FR_seq_L Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption)
+               ltac:(assumption) Hlv).
+    + blift (fun x : cont_stmt => CS_seq_R a x).
+      exact (IHcs _ _ _ _ _ _ _ (FR_seq_R Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption)
+               ltac:(assumption) Hg Hx Hlv).
+  - (* if_then *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv. destruct (at_entry_dec cs) as [Hx | Hx].
+    + destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_if_then e1 x b e2) Hj.
+      apply (bdec_post (cs1 := CS_if_then e1 (CS_pre (top cs)) b e2));
+        [exact Hj | simpl; rewrite Hp; reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      match goal with
+      | [ He : edge ?l (_, PT1 P) |- _ ] => rewrite <- pt1_at in He; rewrite (entry_pred_if Hr He)
+      end.
+      eapply bdec_one; [apply J_If_True; assumption | simpl; rewrite ?app_nil_r; reflexivity].
+    + blift (fun x : cont_stmt => CS_if_then e1 x b e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_then Hr)
+               (stk_ok_push _ _ _ _ Fift ltac:(intros; left; reflexivity) Hstk)
+               ltac:(assumption) ltac:(assumption) Hg Hx Hlv).
+  - (* if_else *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv. destruct (at_entry_dec cs) as [Hx | Hx].
+    + destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_if_else e1 a x e2) Hj.
+      apply (bdec_post (cs1 := CS_if_else e1 a (CS_pre (top cs)) e2));
+        [exact Hj | simpl; rewrite Hp; reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      match goal with
+      | [ He : edge ?l (_, PT1 P) |- _ ] => rewrite <- pt1_at in He; rewrite (entry_pred_if Hr He)
+      end.
+      eapply bdec_one; [apply J_If_False; assumption | simpl; rewrite ?app_nil_r; reflexivity].
+    + blift (fun x : cont_stmt => CS_if_else e1 a x e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_else Hr)
+               (stk_ok_push _ _ _ _ Fiff ltac:(intros; right; left; reflexivity) Hstk)
+               ltac:(assumption) ltac:(assumption) Hg Hx Hlv).
+  - (* loop_from *) eapply bdec_from; eassumption.
+  - (* loop_do *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv. destruct (at_entry_dec cs) as [Hx | Hx].
+    + destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      lift (fun x : cont_stmt => CS_loop_do e1 x b e2) Hj.
+      apply (bdec_post (cs1 := CS_loop_from e1 (top cs) b e2));
+        [ eapply JS_step; [apply J_Loop_Do | exact Hj]
+        | simpl; rewrite Hp; reflexivity |].
+      exact (bdec_from HΓ Hr Hstk Hlv).
+    + blift (fun x : cont_stmt => CS_loop_do e1 x b e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_do Hr)
+               (stk_ok_push _ _ _ _ Floop1 ltac:(intros; right; right; left; reflexivity) Hstk)
+               ltac:(assumption) ltac:(assumption) Hg Hx Hlv).
+  - (* loop_until: back to the exit of the loop's first part *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv.
+    apply (bdec_post (cs1 := CS_loop_do e1 (CS_post a) b e2));
+      [apply jstar_one; apply J_Loop_DoDone | reflexivity |].
+    blift (fun x : cont_stmt => CS_loop_do e1 x b e2).
+    exact (bdec_post_shape HΓ (FR_do Hr)
+             (stk_ok_push _ _ _ _ Floop1 ltac:(intros; right; right; left; reflexivity) Hstk)
+             ltac:(assumption) ltac:(assumption) Hlv).
+  - (* loop_loop *)
+    inversion Hok; subst. inversion Hwf; subst. simpl in Hlv. destruct Hg as [Hg1 Hg].
+    destruct (at_entry_dec cs) as [Hx | Hx].
+    + specialize (Hg1 Hx). destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_loop_loop e1 a x e2) Hj.
+      apply (bdec_post (cs1 := CS_loop_loop e1 a (CS_pre (top cs)) e2));
+        [exact Hj | simpl; rewrite Hp; reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      eapply bdec_one; [apply J_Loop_Iter1; assumption | reflexivity].
+    + blift (fun x : cont_stmt => CS_loop_loop e1 a x e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_loop Hr)
+               (stk_ok_push _ _ _ _ Floop2 ltac:(intros; right; right; right; reflexivity) Hstk)
+               ltac:(assumption) ltac:(assumption) Hg Hx Hlv).
+  - (* call *)
+    inversion Hok as [| | | | | | | | | | q0 c0 Htop Hok' |]; subst. inversion Hwf; subst.
+    simpl in Hlv. destruct (at_entry_dec cs) as [Hx | Hx].
+    + destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_call q [] x) Hj. rewrite Htop, <- (inst_nil HΓ) in Hj.
+      apply (bdec_post (cs1 := CS_call q [] (CS_pre (inst (Γ q) []))));
+        [exact Hj | simpl; rewrite Hp, Htop, (inst_nil HΓ); reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      match goal with
+      | [ He : edge ?l (_, PBlk P) |- _ ] =>
+          rewrite <- pblk_at in He; rewrite (entry_pred_blk Hr eq_refl He)
+      end.
+      eapply bdec_one; [apply J_Call_Enter; apply call_ok_nil; exact HΓ |].
+      simpl. rewrite ?app_nil_r. reflexivity.
+    + assert (Hr' : freach (RProc q) [] (RProc q, PStart) (RProc q, PStop) (top cs))
+        by (rewrite Htop; apply (FR_root (RProc q))).
+      blift (fun x : cont_stmt => CS_call q [] x).
+      exact (IHcs _ _ _ _ (Fcall (r, PBlk P) :: stk) _ _ Hr' I Hok' ltac:(assumption) Hg Hx Hlv).
+  - (* uncall *)
+    inversion Hok as [| | | | | | | | | | | q0 c0 Htop Hok']; subst. inversion Hwf; subst.
+    simpl in Hlv. destruct (at_entry_dec cs) as [Hx | Hx].
+    + destruct (entry_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_uncall q [] x) Hj. rewrite Htop, <- (inst_nil HΓ) in Hj.
+      apply (bdec_post (cs1 := CS_uncall q [] (CS_pre (inv (inst (Γ q) [])))));
+        [exact Hj | simpl; rewrite Hp, Htop, (inst_nil HΓ); reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      match goal with
+      | [ He : edge ?l (_, PBlk P) |- _ ] =>
+          rewrite <- pblk_at in He; rewrite (entry_pred_blk Hr eq_refl He)
+      end.
+      eapply bdec_one; [apply J_Uncall_Enter; apply call_ok_nil; exact HΓ |].
+      simpl. rewrite ?app_nil_r. reflexivity.
+    + assert (Hr' : freach (RInv q) [] (RInv q, PStart) (RInv q, PStop) (top cs))
+        by (rewrite Htop; apply (FR_root (RInv q))).
+      blift (fun x : cont_stmt => CS_uncall q [] x).
+      exact (IHcs _ _ _ _ (Funcall (r, PBlk P) :: stk) _ _ Hr' I Hok' ltac:(assumption) Hg Hx Hlv).
+  - inversion Hok.
+Qed.
+
+(* Their Loop Lemma, right to left, for the repaired rules: a backward step
+   from the configuration of a well-formed token in main is undone by a
+   forward step.  Here the SOURCE of the backward step is the reachable
+   one; with only the target reachable it fails (e4_...). *)
+Theorem lv_loop_bwd :
+  lv_penv Γ -> forall cs (s : store) c,
+    top cs = main -> cs_ok Γ cs -> wf_cs cs -> gok s cs ->
+    lvb Γ main true (Phi cs s) c -> lvf Γ main true c (Phi cs s).
+Proof.
+  intros HΓ cs s c Htop Hok Hwf Hg Hlv. unfold Phi in *.
+  destruct (at_entry_dec cs) as [Hx | Hx].
+  - exfalso. destruct (entry_norm Hx s) as [_ Hp]. rewrite Hp in Hlv. simpl in Hlv.
+    inversion Hlv; subst; unfold stmt_at, test_at, is_start in *; simpl in *; discriminate.
+  - assert (Hr : freach RMain [] (RMain, PStart) (RMain, PStop) (top cs))
+      by (rewrite Htop; apply (FR_root RMain)).
+    destruct (bdec_cs HΓ [] s Hr I Hok Hwf Hg Hx Hlv) as [k0 [t0 [k1 [Hs [Hj [Hp Hd]]]]]].
+    destruct (jstar_ok HΓ Hj) as [Ht _]; simpl in Ht.
+    pose proof (jstar_ok_back HΓ Hj Hok) as Hok1; simpl in Hok1.
+    pose proof (cs_ok_back HΓ Hs Hok1) as Hok0; simpl in Hok0.
+    assert (Hf : frame_ok Γ main RMain [] (RMain, PStart) (RMain, PStop) (top k0))
+      by (rewrite <- (top_step Hs), <- Ht, Htop; apply (fo_root Γ main RMain)).
+    destruct (lv_fwd_sim true HΓ Hs [] Hf Hok0) as [[Es Ep] | Hf2]; simpl in *.
+    + exfalso. subst t0. rewrite Ep, Hp in Hd. rewrite <- Hd in Hlv. exact (lvb_irrefl Hlv).
+    + rewrite <- Hd, <- Hp. exact Hf2.
+Qed.
+
+(* Reachable token configurations of main. *)
+Definition reach (cs : cont_stmt) (s : store) : Prop :=
+  exists s0, jstar Γ (CS_pre main, s0) (cs, s).
+
+Lemma reach_inv :
+  lv_penv Γ -> wf_penv Γ -> frag main -> wf_stmt main -> forall cs (s : store), reach cs s ->
+    top cs = main /\ cs_ok Γ cs /\ wf_cs cs /\ gok s cs.
+Proof.
+  intros HΓ HΓw Hfr Hwf cs s [s0 Hj].
+  destruct (jstar_ok HΓ Hj) as [Ht Ho]; simpl in Ht, Ho.
+  repeat split.
+  - exact Ht.
+  - exact (Ho (ok_pre Γ Hfr)).
+  - exact (jstar_wf HΓw Hj (wf_cs_pre Hwf)).
+  - exact (jstar_gok Hj I).
+Qed.
+
+(* Their Loop Lemma (LNCS Lemma 3, arXiv Lemma 5) for the repaired rules,
+   between configurations of reachable tokens. *)
+Theorem lv_loop_lemma :
+  lv_penv Γ -> wf_penv Γ -> frag main -> wf_stmt main ->
+  forall cs (s : store) cs' s', reach cs s -> reach cs' s' ->
+    lvf Γ main true (Phi cs s) (Phi cs' s') <-> lvb Γ main true (Phi cs' s') (Phi cs s).
+Proof.
+  intros HΓ HΓw Hfr Hwf cs s cs' s' R R'.
+  destruct (reach_inv HΓ HΓw Hfr Hwf R) as [Ht [Ho [Hw _]]].
+  destruct (reach_inv HΓ HΓw Hfr Hwf R') as [Ht' [Ho' [Hw' Hg']]].
+  split.
+  - apply lv_loop_fwd; assumption.
+  - apply lv_loop_bwd; assumption.
+Qed.
+
 End Complete.
+
+
+
 
 
 
@@ -2347,6 +2703,7 @@ Print Assumptions e2_printed_loop_lemma_fails.
 Print Assumptions e2_fixed_stuck.
 Print Assumptions e3_printed_backward_lost.
 Print Assumptions e3_fixed_rejects.
+Print Assumptions e4_loop_lemma_needs_both_reachable.
 Print Assumptions pfx_app.
 Print Assumptions pfx_nil.
 Print Assumptions node_app.
@@ -2412,3 +2769,44 @@ Print Assumptions lv_complete_step.
 Print Assumptions lv_complete_run.
 Print Assumptions lv_run_fwd.
 Print Assumptions lv_lemma1.
+Print Assumptions flow_irrefl.
+Print Assumptions edge_irrefl.
+Print Assumptions lvf_irrefl.
+Print Assumptions lvb_irrefl.
+Print Assumptions dec_one.
+Print Assumptions dec_pre.
+Print Assumptions dec_lift.
+Print Assumptions dec_pre_shape.
+Print Assumptions dec_until.
+Print Assumptions dec_cs.
+Print Assumptions jstar_wf.
+Print Assumptions lv_loop_fwd.
+Print Assumptions flow_seq_L_in.
+Print Assumptions flow_seq_R_in.
+Print Assumptions flow_then_in.
+Print Assumptions flow_else_in.
+Print Assumptions flow_do_in.
+Print Assumptions flow_loop_in.
+Print Assumptions edge_into.
+Print Assumptions entry_pred_blk.
+Print Assumptions entry_pred_if.
+Print Assumptions entry_pred_loop.
+Print Assumptions stop_pred.
+Print Assumptions at_entry_dec.
+Print Assumptions entry_norm.
+Print Assumptions cs_ok_back.
+Print Assumptions jstar_ok_back.
+Print Assumptions step_into_entry.
+Print Assumptions gok_step.
+Print Assumptions jstar_gok.
+Print Assumptions bdec_one.
+Print Assumptions bdec_post.
+Print Assumptions bdec_lift.
+Print Assumptions back_asn.
+Print Assumptions back_aasn.
+Print Assumptions bdec_post_shape.
+Print Assumptions bdec_from.
+Print Assumptions bdec_cs.
+Print Assumptions lv_loop_bwd.
+Print Assumptions reach_inv.
+Print Assumptions lv_loop_lemma.
