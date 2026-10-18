@@ -20,6 +20,7 @@ import sys
 import tempfile
 
 SRC = "janus/janus.v"
+LV = "janus/lv.v"
 ROCQ = os.environ.get("ROCQ", "rocq")
 
 # (description, [(old, new), ...], expected first failing result)
@@ -94,6 +95,19 @@ MUTANTS = [
        "                        | None => None end\n"
        "  | Ebin op e1 e2 => match eval s e1, eval s e2 with\n")],
      "j_strict_and_stuck"),
+    # janus/lv.v: undo each repair of the Lanese-Vidal rules (target LV).
+    ("lv: repaired LoopBase tests entry(s1) again (erratum E1)",
+     [("      l2' <> (if fixed then (r, pfx (p ++ [DLoop]) (entry_pt s2))         (* E1 *)",
+       "      l2' <> (if fixed then (r, pfx (p ++ [DDo]) (entry_pt s1))         (* E1 *)")],
+     "e1_fixed_no_escape", LV),
+    ("lv: repaired LoopMain forbids an unreachable label instead of exit(s2) (erratum E2)",
+     [("      (fixed = true -> l <> (r, pfx (p ++ [DLoop]) (exit_pt s2))) ->         (* E2 *)",
+       "      (fixed = true -> l <> (r, PStop)) ->         (* E2 *)")],
+     "e2_fixed_stuck", LV),
+    ("lv: repaired backward Skip tests l' -> l'' instead of l -> l' (erratum E3)",
+     [("      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l l') ->",
+       "      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l' l'') ->")],
+     "e3_fixed_rejects", LV),
 ]
 
 HEADER = re.compile(
@@ -109,13 +123,18 @@ def enclosing(lines, lineno):
     return "?"
 
 
-def build(text):
+def build(text, target=SRC):
     d = tempfile.mkdtemp(prefix="janus-mut-")
     try:
         os.makedirs(os.path.join(d, "janus"))
-        with open(os.path.join(d, SRC), "w") as f:
+        if target != SRC:
+            # lv.v imports janus.v: build the unmutated janus.v first
+            shutil.copy(SRC, os.path.join(d, SRC))
+            subprocess.run([ROCQ, "c", "-Q", ".", "RCore", SRC], cwd=d, check=True,
+                           capture_output=True, text=True, timeout=1800)
+        with open(os.path.join(d, target), "w") as f:
             f.write(text)
-        r = subprocess.run([ROCQ, "c", "-Q", ".", "RCore", SRC], cwd=d,
+        r = subprocess.run([ROCQ, "c", "-Q", ".", "RCore", target], cwd=d,
                            capture_output=True, text=True, timeout=1800)
         out = r.stdout + r.stderr
         if r.returncode == 0:
@@ -138,8 +157,13 @@ def main():
     good, _ = build(text)
     print(f"control (unmutated)           : {'compiles' if good else 'FAILS'}")
     ok &= good
-    for i, (desc, reps, expected) in enumerate(MUTANTS, 1):
-        mut = text
+    good_lv, _ = build(open(LV).read(), LV)
+    print(f"control lv.v (unmutated)      : {'compiles' if good_lv else 'FAILS'}")
+    ok &= good_lv
+    for i, m in enumerate(MUTANTS, 1):
+        desc, reps, expected = m[:3]
+        target = m[3] if len(m) > 3 else SRC
+        mut = text if target == SRC else open(target).read()
         for old, new in reps:
             n = mut.count(old)
             if n != 1:
@@ -148,7 +172,7 @@ def main():
                 break
             mut = mut.replace(old, new)
         else:
-            compiled, line = build(mut)
+            compiled, line = build(mut, target)
             mlines = mut.split("\n")
             got = "(compiles!)" if compiled else (enclosing(mlines, line) if line else "?")
             hit = (not compiled) and got == expected

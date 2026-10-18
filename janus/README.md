@@ -13,13 +13,13 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
     make janus         # rocq c -Q . RCore janus/janus.v   (this is the proof)
     make janus-check   # kernel re-validation of RCore.janus.janus
     make janus-audit   # tools/audit.sh with SRC=janus/janus.v: no Admitted/Axiom, all Closed
-    make janus-mutants # tools/janus-mutants.py: 12 one-point mutants, each must fail in the expected proof
+    make janus-mutants # tools/janus-mutants.py: 15 one-point mutants (3 in lv.v), each must fail in the expected proof
 
 ## Files
 
 - `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (110 results, axiom-free, Rocq 9.1.1). Every definition and theorem takes the store size (`nv` variables, `na` arrays of length `asize`) as implicit arguments; the examples fix 10, 4, 8 (and §15f 3, 1, 2).
 - `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
-- `lv.v` — the program-counter semantics of Lanese–Vidal (forward and backward rules, as printed and repaired), the map `phi` from token positions to their configurations, `lv_fwd_sim` / `lv_bwd_sim` / `lv_run` / `exec_lv` (every token step is zero or one step of their machine, forwards and backwards), and three errata of the published rules as examples (49 results, axiom-free; `make janus-lv janus-lv-check janus-lv-audit`).
+- `lv.v` — the program-counter semantics of Lanese–Vidal (forward and backward rules, as printed and repaired), the map `phi` from token positions to their configurations, `lv_fwd_sim` / `lv_bwd_sim` / `lv_run` / `exec_lv` (every token step is zero or one step of their machine, forwards and backwards), the converse for the repaired machine (`lv_complete_step`, `lv_complete_run`) and their Lemma 1 in both directions (`lv_lemma1`), and three errata of the published rules as examples (81 results, axiom-free; `make janus-lv janus-lv-check janus-lv-audit`).
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
 ## Headline theorems
@@ -59,8 +59,8 @@ Next steps, in priority order (details in `RULES.md` §7):
    body-local name counts as a global, which is conservative: it rejects some harmless calls).
 3. `bstep_fun` (via `bstep_is_fwd_of_inv`) and extraction of `step_fun` into `../extraction.v`.
 4. The R-CORE→Janus embedding as a formal theorem (`RULES.md` §4, §7 item 6).
-5. ~~Formal comparison with Lanese–Vidal~~ — started 2026-10-18 in `lv.v` (see
-   `LANESE_VIDAL.md` §6); the converse direction (every step of the repaired machine is matched)
-   is open. Earlier note: only the `pdftotext` extraction in rc-survey was readable here, so
+5. ~~Formal comparison with Lanese–Vidal~~ — done 2026-10-18 in `lv.v` (see
+   `LANESE_VIDAL.md` §6), both directions for the repaired rules. Still open: their backward
+   machine's completeness (every ↽ step matched) and the Loop Lemma derived from it. Earlier note: only the `pdftotext` extraction in rc-survey was readable here, so
    `LANESE_VIDAL.md` §5 lists what still needs the paper (rule shapes, loop-label alignment).
 6. ~~A big-step semantics and its equivalence with `jstep`~~ — done (`exec_iff_jstar`).

@@ -311,8 +311,14 @@ unchanged (the five administrative rules) or is one forward step ⇀; `lv_bwd_si
 read backwards it is one backward step ↽. Both hold for the printed and the repaired rules.
 `exec_lv`: a big-step execution of main is a ⇀-run from ⟨σ, start, entry(main), []⟩ to
 ⟨σ′, exit(main), stop, []⟩ and a ↽-run back — their Lemma 1 (LNCS; arXiv Lemma 3), "only if",
-from any store. **Open:** the converse (every step of the repaired machine from a `phi`-image is
-matched by token steps); it needs the uniqueness of CFG successors at exits.
+from any store. **Converse (2026-10-18):** every step of the *repaired* machine from the
+configuration of a token is matched by token steps (`lv_complete_step`, `lv_complete_run`;
+the CFG lemma `edge_under` says that out of a statement the root's edges are its own flow edges
+or the exit edge to the context's successor). Hence `lv_lemma1`: `exec Γ main s s'` iff the
+repaired machine runs from ⟨s, start, entry(main), []⟩ to ⟨s′, exit(main), stop, []⟩ — their
+Lemma 1 in both directions, from any store. The proof needs the repairs of E1 and E2: undoing
+either one breaks `complete_until` resp. `complete_cs` (checked on a copy without the examples),
+and `make janus-mutants` checks that each repair is caught by its example.
 
 **Errata (machine-checked examples).** Read literally:
 
