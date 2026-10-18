@@ -1821,7 +1821,287 @@ Proof. intros fixed c H; inversion H; subst; stuck_cycle. Qed.
 Lemma lvb_irrefl : forall fixed (c : lvcfg), lvb Γ main fixed c c -> False.
 Proof. intros fixed c H; inversion H; subst; stuck_cycle. Qed.
 
+(* ---- 7f. Completeness with the shape of the token run ---- *)
+
+(* dec cs s F d: from (cs, s) the token takes administrative steps (which
+   keep the configuration of the frame F) and then exactly one step, to a
+   position whose configuration is d. *)
+Definition dec (cs : cont_stmt) (s : store) r P pred succ stk (d : lvcfg) : Prop :=
+  exists k1 k2 t2, jstar Γ (cs, s) (k1, s) /\ phi r P pred succ stk k1 = phi r P pred succ stk cs
+                   /\ jstep Γ (k1, s) (k2, t2) /\ to_cfg t2 (phi r P pred succ stk k2) = d.
+
+Lemma dec_one :
+  forall cs (s : store) k2 t2 r P pred succ stk d,
+    jstep Γ (cs, s) (k2, t2) -> to_cfg t2 (phi r P pred succ stk k2) = d ->
+    dec cs s r P pred succ stk d.
+Proof. intros. exists cs, k2, t2. repeat split; auto. apply JS_refl. Qed.
+
+Lemma dec_pre :
+  forall cs cs1 (s : store) r P pred succ stk d,
+    jstar Γ (cs, s) (cs1, s) -> phi r P pred succ stk cs1 = phi r P pred succ stk cs ->
+    dec cs1 s r P pred succ stk d -> dec cs s r P pred succ stk d.
+Proof.
+  intros cs cs1 s r P pred succ stk d Hj Hp [k1 [k2 [t2 [Hj1 [Hp1 [Hs Hd]]]]]].
+  exists k1, k2, t2. repeat split; try assumption.
+  - eapply jstar_trans; eassumption.
+  - rewrite Hp1. exact Hp.
+Qed.
+
+Lemma dec_lift :
+  forall (C : cont_stmt -> cont_stmt) r P pred succ stk r' P' pred' succ' stk',
+    (forall c (s : store) c' s', jstep Γ (c, s) (c', s') -> jstep Γ (C c, s) (C c', s')) ->
+    (forall c, phi r P pred succ stk (C c) = phi r' P' pred' succ' stk' c) ->
+    forall cs (s : store) d, dec cs s r' P' pred' succ' stk' d -> dec (C cs) s r P pred succ stk d.
+Proof.
+  intros C r P pred succ stk r' P' pred' succ' stk' HC HP cs s d [k1 [k2 [t2 [Hj [Hp [Hs Hd]]]]]].
+  exists (C k1), (C k2), t2. repeat split.
+  - exact (lift_star C HC Hj).
+  - rewrite !HP. exact Hp.
+  - apply HC. exact Hs.
+  - rewrite HP. exact Hd.
+Qed.
+
+Ltac dlift C := eapply (dec_lift C); [intros; constructor; assumption | intros; reflexivity |].
+
+Lemma dec_pre_shape :
+  lv_penv Γ -> forall (st : stmt) r P pred succ stk (s : store) d,
+    freach r P pred succ st -> stk_ok r P stk -> frag st ->
+    lvf Γ main true (to_cfg s (phi r P pred succ stk (CS_pre st))) d ->
+    dec (CS_pre st) s r P pred succ stk d.
+Proof.
+  intros HΓ st; induction st; intros r P pred succ stk s d Hr Hstk Hfr Hlv;
+    pose proof (fo_node (freach_ok Hr)) as Hn; simpl in Hlv.
+  1-2, 9: inversion Hlv; subst; kill_lv Hn Hstk;
+    try (exfalso; inversion Hfr; fail);
+    (eapply dec_one;
+     [ econstructor; eassumption
+     | simpl; match goal with
+              | [ He : edge (_, PBlk (_ ++ [])) ?l |- _ ] =>
+                  rewrite (exit_succ_blk Hr eq_refl He); reflexivity
+              end ]).
+  - inversion Hfr; subst. rewrite pfx_app in Hlv.
+    apply (dec_pre (cs1 := CS_seq_L (CS_pre st1) st2));
+      [apply jstar_one; apply J_Seq_Enter | simpl; rewrite pfx_app; reflexivity |].
+    dlift (fun x : cont_stmt => CS_seq_L x st2).
+    exact (IHst1 _ _ _ _ _ _ _ (FR_seq_L Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption) Hlv).
+  - inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eapply dec_one;
+      [ first [ apply J_If_True; assumption | apply J_If_False; assumption ]
+      | simpl; rewrite ?app_nil_r; reflexivity ].
+  - inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eapply dec_one; [apply J_Loop_Enter; assumption | simpl; rewrite ?app_nil_r; reflexivity].
+  - inversion Hfr; subst. inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eapply dec_one; [apply J_Call_Enter; apply call_ok_nil; exact HΓ |].
+    all: match goal with
+         | [ He : edge (_, PStart) _ |- _ ] => rewrite (start_succ He)
+         end.
+    all: simpl; rewrite pfx_nil, (inst_nil HΓ), ?app_nil_r; reflexivity.
+  - inversion Hfr; subst. inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eapply dec_one; [apply J_Uncall_Enter; apply call_ok_nil; exact HΓ |].
+    all: match goal with
+         | [ He : edge (_, PStart) _ |- _ ] => rewrite (start_succ He)
+         end.
+    all: simpl; rewrite pfx_nil, (inst_nil HΓ), ?app_nil_r; reflexivity.
+  - inversion Hfr.
+Qed.
+
+Lemma dec_until :
+  lv_penv Γ -> forall e1 (a b : stmt) e2 r P pred succ stk (s : store) d,
+    freach r P pred succ (Sloop e1 a b e2) -> stk_ok r P stk ->
+    lvf Γ main true (to_cfg s (phi r P pred succ stk (CS_loop_until e1 a b e2))) d ->
+    dec (CS_loop_until e1 a b e2) s r P pred succ stk d.
+Proof.
+  intros HΓ e1 a b e2 r P pred succ stk s d Hr Hstk Hlv.
+  pose proof (fo_node (freach_ok Hr)) as Hn. simpl in Hlv.
+  inversion Hlv; subst; kill_lv Hn Hstk.
+  - eapply dec_one; [apply J_Loop_Exit; assumption |].
+    match goal with
+    | [ He : edge (_, PT2 P) ?l, Hne : ?l <> _ |- _ ] =>
+        rewrite <- pt2_at in He;
+        destruct (exit_succ_loop Hr He) as [-> | E]; [| exfalso; apply Hne; exact E]
+    end.
+    simpl. rewrite app_nil_r. reflexivity.
+  - eapply dec_one; [apply J_Loop_Iter1; assumption | reflexivity].
+Qed.
+
+Lemma dec_cs :
+  lv_penv Γ -> forall cs r P pred succ stk (s : store) d,
+    freach r P pred succ (top cs) -> stk_ok r P stk -> cs_ok Γ cs -> ~ at_exit cs ->
+    lvf Γ main true (to_cfg s (phi r P pred succ stk cs)) d ->
+    dec cs s r P pred succ stk d.
+Proof.
+  intros HΓ cs;
+    induction cs as [st | st | cs IHcs b | a cs IHcs | e1 cs IHcs b e2 | e1 a cs IHcs e2
+                    | e1 a b e2 | e1 cs IHcs b e2 | e1 a b e2 | e1 a cs IHcs e2
+                    | q ys cs IHcs | q ys cs IHcs | x v e1 cs IHcs e2];
+    intros r P pred succ stk s d Hr Hstk Hok Hne Hlv; simpl in Hr.
+  - inversion Hok; subst. eapply dec_pre_shape; eassumption.
+  - exfalso. apply Hne. constructor.
+  - (* seq_L *)
+    inversion Hok; subst. destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. simpl in Hlv. rewrite Hp in Hlv. simpl in Hlv.
+      lift (fun x : cont_stmt => CS_seq_L x b) Hj.
+      apply (dec_pre (cs1 := CS_seq_R (top cs) (CS_pre b)));
+        [ eapply jstar_trans; [exact Hj | apply jstar_one; apply J_Seq_Mid]
+        | simpl; rewrite Hp; reflexivity |].
+      dlift (fun x : cont_stmt => CS_seq_R (top cs) x).
+      exact (dec_pre_shape HΓ (FR_seq_R Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption) Hlv).
+    + simpl in Hlv. dlift (fun x : cont_stmt => CS_seq_L x b).
+      exact (IHcs _ _ _ _ _ _ _ (FR_seq_L Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption) Hx Hlv).
+  - (* seq_R *)
+    inversion Hok; subst. simpl in Hlv.
+    assert (Hx : ~ at_exit cs) by (intro H; apply Hne; constructor; exact H).
+    dlift (fun x : cont_stmt => CS_seq_R a x).
+    exact (IHcs _ _ _ _ _ _ _ (FR_seq_R Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption) Hx Hlv).
+  - (* if_then *)
+    inversion Hok; subst. simpl in Hlv. destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_if_then e1 x b e2) Hj.
+      apply (dec_pre (cs1 := CS_if_then e1 (CS_post (top cs)) b e2));
+        [exact Hj | simpl; rewrite Hp; reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      eapply dec_one; [apply J_Fi_True; assumption |].
+      match goal with
+      | [ He : edge (_, PT2 P) _ |- _ ] => rewrite <- pt2_at in He; rewrite (exit_succ_if Hr He)
+      end.
+      simpl. rewrite app_nil_r. reflexivity.
+    + dlift (fun x : cont_stmt => CS_if_then e1 x b e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_then Hr)
+               (stk_ok_push _ _ _ _ Fift ltac:(intros; left; reflexivity) Hstk)
+               ltac:(assumption) Hx Hlv).
+  - (* if_else *)
+    inversion Hok; subst. simpl in Hlv. destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_if_else e1 a x e2) Hj.
+      apply (dec_pre (cs1 := CS_if_else e1 a (CS_post (top cs)) e2));
+        [exact Hj | simpl; rewrite Hp; reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      eapply dec_one; [apply J_Fi_False; assumption |].
+      match goal with
+      | [ He : edge (_, PT2 P) _ |- _ ] => rewrite <- pt2_at in He; rewrite (exit_succ_if Hr He)
+      end.
+      simpl. rewrite app_nil_r. reflexivity.
+    + dlift (fun x : cont_stmt => CS_if_else e1 a x e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_else Hr)
+               (stk_ok_push _ _ _ _ Fiff ltac:(intros; right; left; reflexivity) Hstk)
+               ltac:(assumption) Hx Hlv).
+  - (* loop_from *)
+    inversion Hok; subst. simpl in Hlv.
+    apply (dec_pre (cs1 := CS_loop_do e1 (CS_pre a) b e2));
+      [apply jstar_one; apply J_Loop_Do | reflexivity |].
+    dlift (fun x : cont_stmt => CS_loop_do e1 x b e2).
+    exact (dec_pre_shape HΓ (FR_do Hr)
+             (stk_ok_push _ _ _ _ Floop1 ltac:(intros; right; right; left; reflexivity) Hstk)
+             ltac:(assumption) Hlv).
+  - (* loop_do *)
+    inversion Hok; subst. simpl in Hlv. destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      lift (fun x : cont_stmt => CS_loop_do e1 x b e2) Hj.
+      apply (dec_pre (cs1 := CS_loop_until e1 (top cs) b e2));
+        [ eapply jstar_trans; [exact Hj | apply jstar_one; apply J_Loop_DoDone]
+        | simpl; rewrite Hp; reflexivity |].
+      exact (dec_until HΓ Hr Hstk Hlv).
+    + dlift (fun x : cont_stmt => CS_loop_do e1 x b e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_do Hr)
+               (stk_ok_push _ _ _ _ Floop1 ltac:(intros; right; right; left; reflexivity) Hstk)
+               ltac:(assumption) Hx Hlv).
+  - (* loop_until *) eapply dec_until; eassumption.
+  - (* loop_loop *)
+    inversion Hok; subst. simpl in Hlv. destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_loop_loop e1 a x e2) Hj.
+      apply (dec_pre (cs1 := CS_loop_loop e1 a (CS_post (top cs)) e2));
+        [exact Hj | simpl; rewrite Hp; reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      * exfalso. match goal with
+                 | [ Hm : true = true -> _ <> _ |- _ ] => apply (Hm eq_refl); reflexivity
+                 end.
+      * eapply dec_one; [apply J_Loop_Iter2; assumption | reflexivity].
+    + dlift (fun x : cont_stmt => CS_loop_loop e1 a x e2).
+      exact (IHcs _ _ _ _ _ _ _ (FR_loop Hr)
+               (stk_ok_push _ _ _ _ Floop2 ltac:(intros; right; right; right; reflexivity) Hstk)
+               ltac:(assumption) Hx Hlv).
+  - (* call *)
+    inversion Hok as [| | | | | | | | | | q0 c0 Htop Hok' |]; subst. simpl in Hlv.
+    destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_call q [] x) Hj. rewrite Htop, <- (inst_nil HΓ) in Hj.
+      apply (dec_pre (cs1 := CS_call q [] (CS_post (inst (Γ q) []))));
+        [exact Hj | simpl; rewrite Hp, Htop, (inst_nil HΓ); reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      eapply dec_one; [apply J_Call_Exit; apply call_ok_nil; exact HΓ |].
+      match goal with
+      | [ He : edge (_, PBlk P) _ |- _ ] =>
+          rewrite <- pblk_at in He; rewrite (exit_succ_blk Hr eq_refl He)
+      end.
+      simpl. rewrite app_nil_r. reflexivity.
+    + assert (Hr' : freach (RProc q) [] (RProc q, PStart) (RProc q, PStop) (top cs))
+        by (rewrite Htop; apply (FR_root (RProc q))).
+      dlift (fun x : cont_stmt => CS_call q [] x).
+      exact (IHcs _ _ _ _ (Fcall (r, PBlk P) :: stk) _ _ Hr' I Hok' Hx Hlv).
+  - (* uncall *)
+    inversion Hok as [| | | | | | | | | | | q0 c0 Htop Hok']; subst. simpl in Hlv.
+    destruct (at_exit_dec cs) as [Hx | Hx].
+    + destruct (exit_norm Hx s) as [Hj Hp]. rewrite Hp in Hlv. simpl in Hlv.
+      pose proof (fo_node (freach_ok Hr)) as Hn.
+      lift (fun x : cont_stmt => CS_uncall q [] x) Hj. rewrite Htop, <- (inst_nil HΓ) in Hj.
+      apply (dec_pre (cs1 := CS_uncall q [] (CS_post (inv (inst (Γ q) [])))));
+        [exact Hj | simpl; rewrite Hp, Htop, (inst_nil HΓ); reflexivity |].
+      inversion Hlv; subst; kill_lv Hn Hstk.
+      eapply dec_one; [apply J_Uncall_Exit; apply call_ok_nil; exact HΓ |].
+      match goal with
+      | [ He : edge (_, PBlk P) _ |- _ ] =>
+          rewrite <- pblk_at in He; rewrite (exit_succ_blk Hr eq_refl He)
+      end.
+      simpl. rewrite app_nil_r. reflexivity.
+    + assert (Hr' : freach (RInv q) [] (RInv q, PStart) (RInv q, PStop) (top cs))
+        by (rewrite Htop; apply (FR_root (RInv q))).
+      dlift (fun x : cont_stmt => CS_uncall q [] x).
+      exact (IHcs _ _ _ _ (Funcall (r, PBlk P) :: stk) _ _ Hr' I Hok' Hx Hlv).
+  - inversion Hok.
+Qed.
+
+Lemma jstar_wf :
+  wf_penv Γ -> forall (c c' : cont_stmt * store), jstar Γ c c' -> wf_cs (fst c) -> wf_cs (fst c').
+Proof.
+  intros HΓ c c' H; induction H as [c | c1 c2 c3 H12 H23 IH]; intros Hwf; [exact Hwf |].
+  destruct c1 as [cs1 s1], c2 as [cs2 s2]. apply IH. exact (wf_cs_step_preserved HΓ H12 Hwf).
+Qed.
+
+(* Their Loop Lemma, left to right, for the repaired rules: from the
+   configuration of a well-formed token in main, every forward step of the
+   machine is undone by a backward step. *)
+Theorem lv_loop_fwd :
+  lv_penv Γ -> wf_penv Γ -> forall cs (s : store) c',
+    top cs = main -> cs_ok Γ cs -> wf_cs cs ->
+    lvf Γ main true (Phi cs s) c' -> lvb Γ main true c' (Phi cs s).
+Proof.
+  intros HΓ HΓw cs s c' Htop Hok Hwf Hlv.
+  destruct (at_exit_dec cs) as [Hx | Hx].
+  - exfalso. unfold Phi in Hlv. destruct (exit_norm Hx s) as [_ Hp]. rewrite Hp in Hlv. simpl in Hlv.
+    inversion Hlv; subst; unfold stmt_at, test_at in *; simpl in *; discriminate.
+  - unfold Phi in Hlv.
+    assert (Hr : freach RMain [] (RMain, PStart) (RMain, PStop) (top cs))
+      by (rewrite Htop; apply (FR_root RMain)).
+    destruct (dec_cs HΓ [] s Hr I Hok Hx Hlv) as [k1 [k2 [t2 [Hj [Hp [Hs Hd]]]]]].
+    destruct (jstar_ok HΓ Hj) as [Ht Ho]; simpl in Ht, Ho. specialize (Ho Hok).
+    pose proof (jstar_wf HΓw Hj Hwf) as Hw; simpl in Hw.
+    assert (Hf : frame_ok Γ main RMain [] (RMain, PStart) (RMain, PStop) (top k1))
+      by (rewrite Ht, Htop; apply (fo_root Γ main RMain)).
+    destruct (lv_bwd_sim true HΓ Hs [] Hf Ho Hw) as [[Es Ep] | Hb]; simpl in *.
+    + exfalso. subst t2. rewrite <- Ep, Hp in Hd. unfold Phi in *. rewrite <- Hd in Hlv.
+      exact (lvf_irrefl Hlv).
+    + unfold Phi. rewrite <- Hd, <- Hp. exact Hb.
+Qed.
+
 End Complete.
+
+
+
 
 
 
