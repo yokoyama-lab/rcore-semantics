@@ -1288,7 +1288,155 @@ Proof.
   - exfalso. match goal with [ E : exit_pt _ = PStart |- _ ] => eapply path_exit; rewrite E; reflexivity end.
 Qed.
 
+(* ---- 7b. Invariants of the stack and of the token ---- *)
+
+(* The frames above the topmost call/uncall element belong to enclosing
+   constructs: their labels lie outside the current statement. *)
+Fixpoint stk_ok (r : root) (P : path) (stk : list frame) : Prop :=
+  match stk with
+  | [] => True
+  | Fcall _ :: _ | Funcall _ :: _ => True
+  | Fift l1 l2 :: rest | Fiff l1 l2 :: rest | Floop1 l1 l2 :: rest | Floop2 l1 l2 :: rest =>
+      outside r P l1 /\ outside r P l2 /\ stk_ok r P rest
+  end.
+
+Lemma stk_ok_ext : forall r P Q stk, stk_ok r P stk -> stk_ok r (P ++ Q) stk.
+Proof.
+  intros r P Q stk; induction stk as [|f stk IH]; [trivial |].
+  destruct f; simpl; try tauto;
+    intros [H1 [H2 H3]]; repeat split; try apply outside_ext; auto.
+Qed.
+
+Lemma stk_ok_push :
+  forall r P d stk (F : label -> label -> frame),
+    (forall l1 l2, F l1 l2 = Fift l1 l2 \/ F l1 l2 = Fiff l1 l2
+                   \/ F l1 l2 = Floop1 l1 l2 \/ F l1 l2 = Floop2 l1 l2) ->
+    stk_ok r P stk -> stk_ok r (P ++ [d]) (F (r, PT1 P) (r, PT2 P) :: stk).
+Proof.
+  intros r P d stk F HF H.
+  destruct (outside_up r P d) as [O1 O2].
+  destruct (HF (r, PT1 P) (r, PT2 P)) as [E | [E | [E | E]]]; rewrite E; simpl;
+    repeat split; try assumption; apply stk_ok_ext; exact H.
+Qed.
+
+Lemma not_outside :
+  forall r P x q, path_of x = Some (P ++ q) -> ~ outside r P (r, x).
+Proof. intros r P x q Hx [H | H]; [apply H; reflexivity | apply (H q); exact Hx]. Qed.
+
+Inductive at_exit : cont_stmt -> Prop :=
+  | AE_post : forall st, at_exit (CS_post st)
+  | AE_seq_R : forall a c, at_exit c -> at_exit (CS_seq_R a c).
+
+Lemma at_exit_dec : forall c, {at_exit c} + {~ at_exit c}.
+Proof.
+  induction c; try (right; intro H; inversion H; fail).
+  - left; constructor.
+  - destruct IHc; [left; constructor; assumption | right; intro H; inversion H; contradiction].
+Defined.
+
+Lemma lift_star :
+  forall (F : cont_stmt -> cont_stmt),
+    (forall c (s : store) c' s', jstep Γ (c, s) (c', s') -> jstep Γ (F c, s) (F c', s')) ->
+    forall c (s : store) c' s', jstar Γ (c, s) (c', s') -> jstar Γ (F c, s) (F c', s').
+Proof. intros F HF c s c' s' H. exact (jstar_lift F HF H). Qed.
+
+Ltac lift C H :=
+  apply (lift_star C) in H; [| intros; constructor; assumption].
+
+(* A token at an exit reaches CS_post of its statement by administrative
+   steps, which do not move the configuration. *)
+Lemma exit_norm :
+  forall c, at_exit c -> forall (s : store),
+    jstar Γ (c, s) (CS_post (top c), s)
+    /\ forall r P pred succ stk, phi r P pred succ stk c = phi r P pred succ stk (CS_post (top c)).
+Proof.
+  intros c H; induction H; intro s; [split; [apply JS_refl | reflexivity] |].
+  destruct (IHat_exit s) as [Hj Hp]. split.
+  - lift (fun x => CS_seq_R a x) Hj.
+    eapply jstar_trans; [exact Hj | apply jstar_one; apply J_Seq_Exit].
+  - intros r P pred succ stk. simpl. rewrite Hp. simpl. rewrite pfx_app. reflexivity.
+Qed.
+
+Lemma call_ok_nil : lv_penv Γ -> forall q, call_ok (Γ q) [] = true.
+Proof.
+  intros H q. unfold call_ok. rewrite (proj1 (H q)). simpl. exact (inj_onb_id _).
+Qed.
+
+(* ---- 7c. From a step of the machine back to token steps ---- *)
+
+Ltac kill_lv Hn Hstk :=
+  unfold stmt_at, test_at in *; simpl in *;
+  repeat match goal with
+         | [ E : node _ (_ ++ []) = _ |- _ ] => rewrite app_nil_r in E
+         | [ E : context [match node _ (_ ++ []) with _ => _ end] |- _ ] => rewrite app_nil_r in E
+         end;
+  try (rewrite Hn in *; simpl in *);
+  repeat match goal with
+         | [ H : Some _ = Some _ |- _ ] => injection H; clear H; intros; subst
+         | [ H : _ /\ _ |- _ ] => destruct H
+         end;
+  try congruence;
+  try (exfalso;
+       match goal with
+       | [ Ho : outside _ _ (_, _) |- _ ] =>
+           destruct Ho as [Ho | Ho]; [apply Ho; reflexivity | apply (Ho []); simpl; reflexivity]
+       end).
+
+Lemma complete_pre :
+  lv_penv Γ -> forall (st : stmt) r P pred succ stk (s : store) d,
+    freach r P pred succ st -> stk_ok r P stk -> frag st ->
+    lvf Γ main true (to_cfg s (phi r P pred succ stk (CS_pre st))) d ->
+    exists c' s', jstar Γ (CS_pre st, s) (c', s') /\ to_cfg s' (phi r P pred succ stk c') = d.
+Proof.
+  intros HΓ st; induction st; intros r P pred succ stk s d Hr Hstk Hfr Hlv;
+    pose proof (fo_node (freach_ok Hr)) as Hn; simpl in Hlv.
+  (* skip, assignment, array assignment: one step to the exit *)
+  1-2, 9: inversion Hlv; subst; kill_lv Hn Hstk;
+    try (exfalso; inversion Hfr; fail);
+    (eexists; eexists; split;
+     [ apply jstar_one; econstructor; eassumption
+     | simpl; match goal with
+              | [ He : edge (_, PBlk (_ ++ [])) ?l |- _ ] =>
+                  rewrite (exit_succ_blk Hr eq_refl He); reflexivity
+              end ]).
+  - (* sequence: enter, then the first statement *)
+    inversion Hfr; subst. rewrite pfx_app in Hlv.
+    destruct (IHst1 _ _ _ _ _ _ _ (FR_seq_L Hr) (stk_ok_ext _ _ _ _ Hstk) ltac:(assumption) Hlv)
+      as [c' [s' [Hj Hp]]].
+    exists (CS_seq_L c' st2), s'. split; [| exact Hp].
+    lift (fun x => CS_seq_L x st2) Hj.
+    eapply JS_step; [apply J_Seq_Enter | exact Hj].
+  - (* conditional: the test *)
+    inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eexists; exists s; split;
+      [ apply jstar_one; first [ apply J_If_True; assumption | apply J_If_False; assumption ]
+      | simpl; rewrite ?app_nil_r; reflexivity ].
+  - (* loop: the entry assertion *)
+    inversion Hlv; subst; kill_lv Hn Hstk.
+    all: eexists; exists s; split;
+      [ apply jstar_one; apply J_Loop_Enter; assumption
+      | simpl; rewrite ?app_nil_r; reflexivity ].
+  - (* call *)
+    inversion Hfr; subst. inversion Hlv; subst; kill_lv Hn Hstk.
+    all: exists (CS_call q [] (CS_pre (inst (Γ q) []))), s; split;
+      [ apply jstar_one; apply J_Call_Enter; apply call_ok_nil; exact HΓ | ].
+    all: match goal with
+         | [ He : edge (_, PStart) _ |- _ ] => rewrite (start_succ He)
+         end.
+    all: simpl; rewrite pfx_nil, (inst_nil HΓ), ?app_nil_r; reflexivity.
+  - (* uncall *)
+    inversion Hfr; subst. inversion Hlv; subst; kill_lv Hn Hstk.
+    all: exists (CS_uncall q [] (CS_pre (inv (inst (Γ q) [])))), s; split;
+      [ apply jstar_one; apply J_Uncall_Enter; apply call_ok_nil; exact HΓ | ].
+    all: match goal with
+         | [ He : edge (_, PStart) _ |- _ ] => rewrite (start_succ He)
+         end.
+    all: simpl; rewrite pfx_nil, (inst_nil HΓ), ?app_nil_r; reflexivity.
+  - inversion Hfr.
+Qed.
+
 End Complete.
+
 
 
 
