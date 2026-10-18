@@ -509,7 +509,7 @@ Qed.
    From Y = 0 the first iteration ends at l1 with Y = 0, so the entry
    assertion is true where it must be false: Janus is stuck.  The printed
    LoopMain re-enters the loop, and the step cannot be undone: the Loop
-   Lemma (LNCS Lemma 2, arXiv Lemma 5) fails at this reachable
+   Lemma (LNCS Lemma 3, arXiv Lemma 5) fails at this reachable
    configuration. *)
 Definition main2 : @stmt 1 1 :=
   Sloop (Ebin Beq (Evar Y) (Econst 0)) Sskip Sskip (Ebin Beq (Evar Y) (Econst 1)).
@@ -591,6 +591,40 @@ Proof.
        | [ Hf : flow _ PStart _ |- _ ] =>
            apply flow_paths in Hf; destruct Hf as [Hf _]; apply Hf; reflexivity
        end.
+Qed.
+
+(* ---- (E4) the Loop Lemma, right to left:  if 1 then skip else skip fi 1 ----
+   Their Loop Lemma assumes only that the left-hand configuration c is
+   reachable.  Backward IfTrue2 does not constrain the next label of its
+   source, so a configuration c' with a label that no edge reaches steps
+   back to the reachable c, but c does not step forwards to c'.  This holds
+   for the repaired rules too; the statement needs c' reachable as well
+   (lv_loop_lemma below). *)
+Definition main4 : @stmt 1 1 := Sif (Econst 1) Sskip Sskip (Econst 1).
+Definition c4 : @lvcfg 1 1 1 :=
+  mkcfg s0 (RMain, PBlk [DThen]) (RMain, PT2 []) [Fift (RMain, PT1 []) (RMain, PT2 [])].
+Definition c4' : @lvcfg 1 1 1 := mkcfg s0 (RMain, PT2 []) (RMain, PStart) [].
+
+Example e4_loop_lemma_needs_both_reachable :
+  forall fixed,
+    lvf_star Γe main4 fixed (mkcfg s0 (RMain, PStart) (RMain, PT1 []) []) c4
+    /\ lvb Γe main4 fixed c4' c4 /\ ~ lvf Γe main4 fixed c4 c4'.
+Proof.
+  intro fixed. split; [| split].
+  - eapply LFS_step.
+    { apply (@LF_IfTrue1 1 1 1 Γe main4 fixed s0 (RMain, PStart) RMain [] (Econst 1)
+               Sskip Sskip (Econst 1) []); reflexivity. }
+    eapply LFS_step; [apply LF_Skip; [reflexivity | edge_flow] | apply LFS_refl].
+  - apply (@LB_IfTrue2 1 1 1 Γe main4 fixed s0 RMain [] (Econst 1) Sskip Sskip (Econst 1)
+             (RMain, PStart) []); reflexivity.
+  - intro H; inversion H; subst; unfold main4 in *; clean; try discriminate.
+    match goal with
+    | [ He : edge _ _ (RMain, PT2 []) (RMain, PStart) |- _ ] => inversion He; subst
+    end.
+    match goal with
+    | [ Hf : flow _ _ PStart |- _ ] =>
+        apply flow_paths in Hf; destruct Hf as [_ Hf]; apply Hf; reflexivity
+    end.
 Qed.
 
 End Errata.
@@ -1757,7 +1791,38 @@ Proof.
     + exfalso. destruct ext; discriminate Hk.
 Qed.
 
+(* ---- 7e. No step of the machine leaves the configuration unchanged ---- *)
+
+Lemma flow_irrefl : forall (st : stmt) x y, flow st x y -> x <> y.
+Proof. intros st x y H; induction H; intro E; try ptc; try peq; congruence. Qed.
+
+Lemma edge_irrefl : forall l, edge l l -> False.
+Proof.
+  intros l H; inversion H; subst;
+    try (eapply flow_irrefl; [eassumption | reflexivity]);
+    match goal with
+    | [ E : entry_pt ?t = _ |- _ ] => apply (path_entry t); rewrite E; reflexivity
+    | [ E : _ = entry_pt ?t |- _ ] => apply (path_entry t); rewrite <- E; reflexivity
+    | [ E : exit_pt ?t = _ |- _ ] => apply (path_exit t); rewrite E; reflexivity
+    | [ E : _ = exit_pt ?t |- _ ] => apply (path_exit t); rewrite <- E; reflexivity
+    end.
+Qed.
+
+Ltac stuck_cycle :=
+  first [ eapply edge_irrefl; eassumption
+        | match goal with
+          | [ E : ?p = _ :: ?p |- _ ] => apply (f_equal (@length _)) in E; simpl in E; lia
+          | [ E : _ :: ?p = ?p |- _ ] => apply (f_equal (@length _)) in E; simpl in E; lia
+          end ].
+
+Lemma lvf_irrefl : forall fixed (c : lvcfg), lvf Γ main fixed c c -> False.
+Proof. intros fixed c H; inversion H; subst; stuck_cycle. Qed.
+
+Lemma lvb_irrefl : forall fixed (c : lvcfg), lvb Γ main fixed c c -> False.
+Proof. intros fixed c H; inversion H; subst; stuck_cycle. Qed.
+
 End Complete.
+
 
 
 
