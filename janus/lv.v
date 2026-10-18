@@ -1080,6 +1080,221 @@ Qed.
 End Sim.
 
 (* ================================================================= *)
+(* 7. The converse: every step of the repaired machine is matched     *)
+(* ================================================================= *)
+
+Section Complete.
+Context {nv na asize : nat}.
+
+Local Notation stmt := (@janus.stmt nv na).
+Local Notation store := (@janus.store nv na asize).
+Local Notation penv := (@janus.penv nv na).
+Local Notation cont_stmt := (@janus.cont_stmt nv na).
+Local Notation lvcfg := (@lvcfg nv na asize).
+
+Variables (Γ : penv) (main : stmt).
+
+Local Notation rstmt := (rstmt Γ main).
+Local Notation edge := (edge Γ main).
+Local Notation phi := (phi (nv := nv) (na := na)).
+
+(* ---- 7a. Frames reached from a root, and the edges out of them ---- *)
+
+(* The frames of phi: a root, and the six descents into sub-statements. *)
+Inductive freach : root -> path -> label -> label -> stmt -> Prop :=
+  | FR_root : forall r, freach r [] (r, PStart) (r, PStop) (rstmt r)
+  | FR_seq_L : forall r P pred succ a b, freach r P pred succ (Sseq a b) ->
+      freach r (P ++ [DL]) pred (r, pfx (P ++ [DR]) (entry_pt b)) a
+  | FR_seq_R : forall r P pred succ a b, freach r P pred succ (Sseq a b) ->
+      freach r (P ++ [DR]) (r, pfx (P ++ [DL]) (exit_pt a)) succ b
+  | FR_then : forall r P pred succ e1 a b e2, freach r P pred succ (Sif e1 a b e2) ->
+      freach r (P ++ [DThen]) (r, PT1 P) (r, PT2 P) a
+  | FR_else : forall r P pred succ e1 a b e2, freach r P pred succ (Sif e1 a b e2) ->
+      freach r (P ++ [DElse]) (r, PT1 P) (r, PT2 P) b
+  | FR_do : forall r P pred succ e1 a b e2, freach r P pred succ (Sloop e1 a b e2) ->
+      freach r (P ++ [DDo]) (r, PT1 P) (r, PT2 P) a
+  | FR_loop : forall r P pred succ e1 a b e2, freach r P pred succ (Sloop e1 a b e2) ->
+      freach r (P ++ [DLoop]) (r, PT2 P) (r, PT1 P) b.
+
+Lemma freach_ok : forall r P pred succ st, freach r P pred succ st -> frame_ok Γ main r P pred succ st.
+Proof.
+  intros r P pred succ st H; induction H.
+  - apply fo_root.
+  - eapply fo_seq_L; eassumption.
+  - eapply fo_seq_R; eassumption.
+  - eapply fo_then; eassumption.
+  - eapply fo_else; eassumption.
+  - eapply fo_do; eassumption.
+  - eapply fo_loop; eassumption.
+Qed.
+
+Lemma pfx_cons_inj :
+  forall d d' x x', path_of x <> None -> pfx [d] x = pfx [d'] x' -> d = d' /\ x = x'.
+Proof.
+  intros d d' [p|p|p| |] [p'|p'|p'| |] Hx H; simpl in *; try discriminate;
+    try (exfalso; apply Hx; reflexivity); injection H as -> ->; split; reflexivity.
+Qed.
+
+Lemma pfx_cons_root :
+  forall d x, path_of x <> None -> pfx [d] x <> PT1 [] /\ pfx [d] x <> PT2 [].
+Proof. intros d [p|p|p| |] Hx; simpl in *; split; try discriminate; exfalso; apply Hx; reflexivity. Qed.
+
+(* Inversion of flow at a point inside a sub-statement. *)
+Ltac pth :=
+  first [ apply path_exit | apply path_entry | assumption
+        | match goal with
+          | [ F : flow _ ?x _ |- path_of ?x <> None ] => exact (proj1 (flow_paths F))
+          end ].
+
+Ltac peq :=
+  match goal with
+  | [ E : pfx [_] _ = pfx [_] _ |- _ ] =>
+      apply pfx_cons_inj in E;
+      [ let E1 := fresh in let E2 := fresh in
+        destruct E as [E1 E2]; try discriminate E1; subst
+      | pth ]
+  end.
+
+Ltac ptc :=
+  match goal with
+  | [ E : PT1 [] = pfx _ ?x |- _ ] => destruct x; simpl in E; discriminate
+  | [ E : PT2 [] = pfx _ ?x |- _ ] => destruct x; simpl in E; discriminate
+  | [ E : pfx _ ?x = PT1 [] |- _ ] => destruct x; simpl in E; discriminate
+  | [ E : pfx _ ?x = PT2 [] |- _ ] => destruct x; simpl in E; discriminate
+  end.
+
+Ltac flow_sub H :=
+  inversion H; subst; try ptc; try peq;
+  first [ left; split; reflexivity
+        | right; eexists; split; [reflexivity | assumption] ].
+
+Lemma flow_seq_L :
+  forall (a b : stmt) x0 y0, path_of x0 <> None -> flow (Sseq a b) (pfx [DL] x0) y0 ->
+    (x0 = exit_pt a /\ y0 = pfx [DR] (entry_pt b)) \/ (exists y1, y0 = pfx [DL] y1 /\ flow a x0 y1).
+Proof. intros a b x0 y0 Hx H. flow_sub H. Qed.
+
+Lemma flow_seq_R :
+  forall (a b : stmt) x0 y0, path_of x0 <> None -> flow (Sseq a b) (pfx [DR] x0) y0 ->
+    False \/ (exists y1, y0 = pfx [DR] y1 /\ flow b x0 y1).
+Proof. intros a b x0 y0 Hx H. flow_sub H. Qed.
+
+Lemma flow_then :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sif e1 a b e2) (pfx [DThen] x0) y0 ->
+    (x0 = exit_pt a /\ y0 = PT2 []) \/ (exists y1, y0 = pfx [DThen] y1 /\ flow a x0 y1).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub H. Qed.
+
+Lemma flow_else :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sif e1 a b e2) (pfx [DElse] x0) y0 ->
+    (x0 = exit_pt b /\ y0 = PT2 []) \/ (exists y1, y0 = pfx [DElse] y1 /\ flow b x0 y1).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub H. Qed.
+
+Lemma flow_do :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sloop e1 a b e2) (pfx [DDo] x0) y0 ->
+    (x0 = exit_pt a /\ y0 = PT2 []) \/ (exists y1, y0 = pfx [DDo] y1 /\ flow a x0 y1).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub H. Qed.
+
+Lemma flow_loop :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sloop e1 a b e2) (pfx [DLoop] x0) y0 ->
+    (x0 = exit_pt b /\ y0 = PT1 []) \/ (exists y1, y0 = pfx [DLoop] y1 /\ flow b x0 y1).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub H. Qed.
+
+Lemma path_pfx_cons : forall d x, path_of x <> None -> path_of (pfx [d] x) <> None.
+Proof. intros d [p|p|p| |] H; simpl; try discriminate; exact H. Qed.
+
+(* Out of a point of the statement at a reached frame, an edge of the
+   root either is a flow edge of that statement, or leaves its exit
+   towards succ. *)
+Lemma edge_under :
+  forall r P pred succ st, freach r P pred succ st ->
+  forall x0 y, path_of x0 <> None -> edge (r, pfx P x0) y ->
+    (exists y0, y = (r, pfx P y0) /\ flow st x0 y0) \/ (x0 = exit_pt st /\ y = succ).
+Proof.
+  intros r P pred succ st H; induction H; intros x0 y Hx He.
+  1: { rewrite pfx_nil in He. inversion He; subst.
+       - left. exists y0. rewrite pfx_nil. split; [reflexivity | assumption].
+       - exfalso. apply Hx. reflexivity.
+       - right. split; reflexivity. }
+  (* the six descents: ask the parent frame about pfx [d] x0 *)
+  all: rewrite <- pfx_app in He;
+       destruct (IHfreach _ _ (path_pfx_cons _ _ Hx) He) as [[y0 [-> Hf]] | [Hex ->]].
+  - destruct (flow_seq_L _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pfx_app. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hex. apply pfx_cons_inj in Hex; [destruct Hex as [Hd _]; discriminate Hd | exact Hx].
+  - destruct (flow_seq_R _ Hx Hf) as [[] | [y1 [-> Hf1]]].
+    left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - simpl in Hex. apply pfx_cons_inj in Hex; [destruct Hex as [_ ->] | exact Hx].
+    right. split; reflexivity.
+  - destruct (flow_then _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt2_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hex. exact (proj2 (pfx_cons_root DThen _ Hx) Hex).
+  - destruct (flow_else _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt2_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hex. exact (proj2 (pfx_cons_root DElse _ Hx) Hex).
+  - destruct (flow_do _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt2_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hex. exact (proj2 (pfx_cons_root DDo _ Hx) Hex).
+  - destruct (flow_loop _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt1_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hex. exact (proj2 (pfx_cons_root DLoop _ Hx) Hex).
+Qed.
+
+(* The successor of an exit is succ, except the internal edge from the
+   until-point of a loop to its loop body. *)
+Lemma exit_succ_blk :
+  forall r P pred succ st, freach r P pred succ st -> exit_pt st = PBlk [] ->
+  forall y, edge (r, pfx P (PBlk [])) y -> y = succ.
+Proof.
+  intros r P pred succ st H Hst y He. rewrite <- Hst in He.
+  destruct (edge_under H _ (path_exit st) He) as [[y0 [_ Hf]] | [_ ->]]; [| reflexivity].
+  exfalso. rewrite Hst in Hf.
+  destruct st; simpl in Hst; try discriminate.
+  all: try (inversion Hf; fail).
+  all: destruct (exit_pt st2); simpl in Hst; discriminate.
+Qed.
+
+Lemma exit_succ_if :
+  forall r P pred succ e1 a b e2, freach r P pred succ (Sif e1 a b e2) ->
+  forall y, edge (r, pfx P (PT2 [])) y -> y = succ.
+Proof.
+  intros r P pred succ e1 a b e2 H y He.
+  destruct (edge_under H (PT2 []) ltac:(discriminate) He) as [[y0 [_ Hf]] | [_ ->]]; [| reflexivity].
+  exfalso. inversion Hf; subst; ptc.
+Qed.
+
+Lemma exit_succ_loop :
+  forall r P pred succ e1 a b e2, freach r P pred succ (Sloop e1 a b e2) ->
+  forall y, edge (r, pfx P (PT2 [])) y -> y = succ \/ y = (r, pfx (P ++ [DLoop]) (entry_pt b)).
+Proof.
+  intros r P pred succ e1 a b e2 H y He.
+  destruct (edge_under H (PT2 []) ltac:(discriminate) He) as [[y0 [-> Hf]] | [_ ->]];
+    [| left; reflexivity].
+  right. inversion Hf; subst; try ptc. rewrite pfx_app. reflexivity.
+Qed.
+
+(* Out of start, the only edge goes to the entry of the root. *)
+Lemma start_succ : forall r y, edge (r, PStart) y -> y = (r, entry_pt (rstmt r)).
+Proof.
+  intros r y He. inversion He; subst; [| reflexivity |].
+  - exfalso. match goal with [ F : flow _ PStart _ |- _ ] => apply (proj1 (flow_paths F)); reflexivity end.
+  - exfalso. match goal with [ E : exit_pt _ = PStart |- _ ] => eapply path_exit; rewrite E; reflexivity end.
+Qed.
+
+End Complete.
+
+
+
+
+
+(* ================================================================= *)
 (* 6. Axiom audit                                                     *)
 (* ================================================================= *)
 
