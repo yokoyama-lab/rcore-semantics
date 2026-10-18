@@ -1186,6 +1186,7 @@ Ltac pth :=
   first [ apply path_exit | apply path_entry | assumption
         | match goal with
           | [ F : flow _ ?x _ |- path_of ?x <> None ] => exact (proj1 (flow_paths F))
+          | [ F : flow _ _ ?x |- path_of ?x <> None ] => exact (proj2 (flow_paths F))
           end ].
 
 Ltac peq :=
@@ -2098,7 +2099,220 @@ Proof.
     + unfold Phi. rewrite <- Hd, <- Hp. exact Hb.
 Qed.
 
+(* ---- 7g. Edges into a statement ---- *)
+
+Ltac flow_sub_in H :=
+  inversion H; subst; try ptc; try peq;
+  first [ left; split; reflexivity
+        | right; eexists; split; [reflexivity | assumption] ].
+
+Lemma flow_seq_L_in :
+  forall (a b : stmt) x0 y0, path_of x0 <> None -> flow (Sseq a b) y0 (pfx [DL] x0) ->
+    False \/ (exists y1, y0 = pfx [DL] y1 /\ flow a y1 x0).
+Proof. intros a b x0 y0 Hx H. flow_sub_in H. Qed.
+
+Lemma flow_seq_R_in :
+  forall (a b : stmt) x0 y0, path_of x0 <> None -> flow (Sseq a b) y0 (pfx [DR] x0) ->
+    (x0 = entry_pt b /\ y0 = pfx [DL] (exit_pt a)) \/ (exists y1, y0 = pfx [DR] y1 /\ flow b y1 x0).
+Proof. intros a b x0 y0 Hx H. flow_sub_in H. Qed.
+
+Lemma flow_then_in :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sif e1 a b e2) y0 (pfx [DThen] x0) ->
+    (x0 = entry_pt a /\ y0 = PT1 []) \/ (exists y1, y0 = pfx [DThen] y1 /\ flow a y1 x0).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub_in H. Qed.
+
+Lemma flow_else_in :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sif e1 a b e2) y0 (pfx [DElse] x0) ->
+    (x0 = entry_pt b /\ y0 = PT1 []) \/ (exists y1, y0 = pfx [DElse] y1 /\ flow b y1 x0).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub_in H. Qed.
+
+Lemma flow_do_in :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sloop e1 a b e2) y0 (pfx [DDo] x0) ->
+    (x0 = entry_pt a /\ y0 = PT1 []) \/ (exists y1, y0 = pfx [DDo] y1 /\ flow a y1 x0).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub_in H. Qed.
+
+Lemma flow_loop_in :
+  forall e1 (a b : stmt) e2 x0 y0, path_of x0 <> None ->
+    flow (Sloop e1 a b e2) y0 (pfx [DLoop] x0) ->
+    (x0 = entry_pt b /\ y0 = PT2 []) \/ (exists y1, y0 = pfx [DLoop] y1 /\ flow b y1 x0).
+Proof. intros e1 a b e2 x0 y0 Hx H. flow_sub_in H. Qed.
+
+(* Into a point of the statement at a reached frame, an edge of the root
+   either is a flow edge of that statement, or enters its entry from pred. *)
+Lemma edge_into :
+  forall r P pred succ st, freach r P pred succ st ->
+  forall x0 y, path_of x0 <> None -> edge y (r, pfx P x0) ->
+    (exists y0, y = (r, pfx P y0) /\ flow st y0 x0) \/ (x0 = entry_pt st /\ y = pred).
+Proof.
+  intros r P pred succ st H; induction H; intros x0 y Hx He.
+  1: { rewrite pfx_nil in He. inversion He; subst.
+       - left. exists x. rewrite pfx_nil. split; [reflexivity | assumption].
+       - right. split; reflexivity.
+       - exfalso. apply Hx. reflexivity. }
+  all: rewrite <- pfx_app in He;
+       destruct (IHfreach _ _ (path_pfx_cons _ _ Hx) He) as [[y0 [-> Hf]] | [Hen ->]].
+  - destruct (flow_seq_L_in _ Hx Hf) as [[] | [y1 [-> Hf1]]].
+    left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - simpl in Hen. apply pfx_cons_inj in Hen; [destruct Hen as [_ ->] | exact Hx].
+    right. split; reflexivity.
+  - destruct (flow_seq_R_in _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pfx_app. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hen. apply pfx_cons_inj in Hen; [destruct Hen as [Hd _]; discriminate Hd | exact Hx].
+  - destruct (flow_then_in _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt1_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hen. exact (proj1 (pfx_cons_root DThen _ Hx) Hen).
+  - destruct (flow_else_in _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt1_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hen. exact (proj1 (pfx_cons_root DElse _ Hx) Hen).
+  - destruct (flow_do_in _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt1_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hen. exact (proj1 (pfx_cons_root DDo _ Hx) Hen).
+  - destruct (flow_loop_in _ Hx Hf) as [[-> ->] | [y1 [-> Hf1]]].
+    + right. rewrite pt2_at. split; reflexivity.
+    + left. exists y1. rewrite pfx_app. split; [reflexivity | exact Hf1].
+  - exfalso. simpl in Hen. exact (proj1 (pfx_cons_root DLoop _ Hx) Hen).
+Qed.
+
+Lemma entry_pred_blk :
+  forall r P pred succ st, freach r P pred succ st -> entry_pt st = PBlk [] ->
+  forall y, edge y (r, pfx P (PBlk [])) -> y = pred.
+Proof.
+  intros r P pred succ st H Hst y He. rewrite <- Hst in He.
+  destruct (edge_into H _ (path_entry st) He) as [[y0 [_ Hf]] | [_ ->]]; [| reflexivity].
+  exfalso. rewrite Hst in Hf.
+  destruct st; simpl in Hst; try discriminate.
+  all: try (inversion Hf; fail).
+  all: destruct (entry_pt st1); simpl in Hst; discriminate.
+Qed.
+
+Lemma entry_pred_if :
+  forall r P pred succ e1 a b e2, freach r P pred succ (Sif e1 a b e2) ->
+  forall y, edge y (r, pfx P (PT1 [])) -> y = pred.
+Proof.
+  intros r P pred succ e1 a b e2 H y He.
+  destruct (edge_into H (PT1 []) ltac:(discriminate) He) as [[y0 [_ Hf]] | [_ ->]]; [| reflexivity].
+  exfalso. inversion Hf; subst; ptc.
+Qed.
+
+Lemma entry_pred_loop :
+  forall r P pred succ e1 a b e2, freach r P pred succ (Sloop e1 a b e2) ->
+  forall y, edge y (r, pfx P (PT1 [])) -> y = pred \/ y = (r, pfx (P ++ [DLoop]) (exit_pt b)).
+Proof.
+  intros r P pred succ e1 a b e2 H y He.
+  destruct (edge_into H (PT1 []) ltac:(discriminate) He) as [[y0 [-> Hf]] | [_ ->]];
+    [| left; reflexivity].
+  right. inversion Hf; subst; try ptc. rewrite pfx_app. reflexivity.
+Qed.
+
+Lemma stop_pred : forall q y, edge y (q, PStop) -> y = (q, exit_pt (rstmt q)).
+Proof.
+  intros q y He. inversion He; subst; [| | reflexivity].
+  - exfalso. match goal with [ F : flow _ _ PStop |- _ ] => apply (proj2 (flow_paths F)); reflexivity end.
+  - exfalso. match goal with [ E : entry_pt _ = PStop |- _ ] => eapply path_entry; rewrite E; reflexivity end.
+Qed.
+
+(* ---- 7h. Entries, and invariants for running backwards ---- *)
+
+Inductive at_entry : cont_stmt -> Prop :=
+  | AN_pre : forall st, at_entry (CS_pre st)
+  | AN_seq_L : forall c b, at_entry c -> at_entry (CS_seq_L c b).
+
+Lemma at_entry_dec : forall c, {at_entry c} + {~ at_entry c}.
+Proof.
+  induction c; try (right; intro H; inversion H; fail).
+  - left; constructor.
+  - destruct IHc; [left; constructor; assumption | right; intro H; inversion H; contradiction].
+Defined.
+
+(* A token at an entry is reached from CS_pre of its statement by
+   administrative steps, which do not move the configuration. *)
+Lemma entry_norm :
+  forall c, at_entry c -> forall (s : store),
+    jstar Γ (CS_pre (top c), s) (c, s)
+    /\ forall r P pred succ stk, phi r P pred succ stk c = phi r P pred succ stk (CS_pre (top c)).
+Proof.
+  intros c H; induction H; intro s; [split; [apply JS_refl | reflexivity] |].
+  destruct (IHat_entry s) as [Hj Hp]. split.
+  - lift (fun x : cont_stmt => CS_seq_L x b) Hj.
+    eapply JS_step; [apply J_Seq_Enter | exact Hj].
+  - intros r P pred succ stk. simpl. rewrite Hp. simpl. rewrite pfx_app. reflexivity.
+Qed.
+
+Local Hint Constructors cs_ok frag : core.
+
+Lemma cs_ok_back :
+  lv_penv Γ -> forall cfg cfg', @jstep nv na asize Γ cfg cfg' -> cs_ok Γ (fst cfg') -> cs_ok Γ (fst cfg).
+Proof.
+  intros HΓ cfg cfg' H; induction H; intros Hok; simpl in *; inversion Hok; subst;
+    repeat match goal with
+           | [ Hc : cs_ok _ (CS_pre _) |- _ ] => inversion Hc; subst; clear Hc
+           | [ Hc : cs_ok _ (CS_post _) |- _ ] => inversion Hc; subst; clear Hc
+           | [ Hf : frag (Scall _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Suncall _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Slocal _ _ _ _) |- _ ] => inversion Hf
+           | [ Hf : frag (Sseq _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Sif _ _ _ _) |- _ ] => inversion Hf; subst; clear Hf
+           | [ Hf : frag (Sloop _ _ _ _) |- _ ] => inversion Hf; subst; clear Hf
+           end;
+    try (constructor; auto; fail).
+  all: try (constructor; [rewrite <- (top_step H); assumption | auto]; fail).
+  all: try (constructor; [simpl; apply inst_nil; exact HΓ
+                         | constructor; rewrite inst_nil by exact HΓ; apply HΓ]; fail).
+  all: try (constructor; [simpl; rewrite inst_nil by exact HΓ; reflexivity
+                         | constructor; rewrite inst_nil by exact HΓ; apply frag_inv, HΓ]; fail).
+Qed.
+
+Lemma jstar_ok_back :
+  lv_penv Γ -> forall (c c' : cont_stmt * store), jstar Γ c c' -> cs_ok Γ (fst c') -> cs_ok Γ (fst c).
+Proof.
+  intros HΓ c c' H; induction H as [c | c1 c2 c3 H12 H23 IH]; intros Hok; [exact Hok |].
+  exact (cs_ok_back HΓ H12 (IH Hok)).
+Qed.
+
+(* At the entry of the loop body s2 the until-test e2 is false: this holds
+   of every reachable token, and the backward LoopBase needs it. *)
+Fixpoint gok (s : store) (cs : cont_stmt) : Prop :=
+  match cs with
+  | CS_seq_L c _ | CS_seq_R _ c | CS_if_then _ c _ _ | CS_if_else _ _ c _
+  | CS_loop_do _ c _ _ | CS_call _ _ c | CS_uncall _ _ c | CS_local _ _ _ c _ => gok s c
+  | CS_loop_loop _ _ c e2 => (at_entry c -> truth s e2 = Some false) /\ gok s c
+  | _ => True
+  end.
+
+Lemma step_into_entry :
+  forall cfg cfg', @jstep nv na asize Γ cfg cfg' -> at_entry (fst cfg') ->
+    at_entry (fst cfg) /\ snd cfg = snd cfg'.
+Proof.
+  intros cfg cfg' H; induction H; intros He; simpl in *; inversion He; subst;
+    try (split; [constructor | reflexivity]).
+  destruct (IHjstep ltac:(assumption)) as [Ha Hb]. split; [constructor; exact Ha | exact Hb].
+Qed.
+
+Lemma gok_step :
+  forall cfg cfg', @jstep nv na asize Γ cfg cfg' -> gok (snd cfg) (fst cfg) -> gok (snd cfg') (fst cfg').
+Proof.
+  intros cfg cfg' H; induction H; intros Hg; simpl in *; try tauto.
+  destruct Hg as [Hg1 Hg2]. split; [| apply IHjstep; exact Hg2].
+  intro He. destruct (step_into_entry H He) as [He0 Es]; simpl in *. subst. apply Hg1. exact He0.
+Qed.
+
+Lemma jstar_gok :
+  forall (c c' : cont_stmt * store), jstar Γ c c' -> gok (snd c) (fst c) -> gok (snd c') (fst c').
+Proof.
+  intros c c' H; induction H as [c | c1 c2 c3 H12 H23 IH]; intros Hg; [exact Hg |].
+  apply IH. exact (gok_step H12 Hg).
+Qed.
+
 End Complete.
+
+
 
 
 
