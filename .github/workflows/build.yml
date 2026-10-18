@@ -63,6 +63,9 @@ jobs:
             startGroup "Lanese-Vidal semantics (janus/lv.v): build, kernel check, axiom audit"
               make janus-lv && make janus-lv-check && make janus-lv-audit
             endGroup
+            startGroup "Janus extraction -- RUN the extracted interpreter forwards and backwards"
+              make janus-extract-test
+            endGroup
             startGroup "Janus mutation check -- each broken definition is caught"
               make janus-mutants
             endGroup

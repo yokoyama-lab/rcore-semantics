@@ -4,7 +4,7 @@
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-10-18, partial expression evaluation; arbitrary store size): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 110 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-10-19, partial expression evaluation; arbitrary store size; backward stepper): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 112 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -403,10 +403,11 @@ Excluded from this core, in the order they should be added:
 
 Independent of the language extensions:
 
-5. **`bstep_fun` and extraction.** `step_fun` / `step_fun_correct` are done (Sect. 6). What
-   remains is `bstep_fun` (as in `proofs.v` L4964–4970: `step_fun` on the `cs_inv`-mirrored
-   configuration, correct by `bstep_is_fwd_of_inv`) and adding `janus.v` to `extraction.v`, so
-   the Janus semantics can be *run* (a small reversible debugger) rather than only reasoned about.
+5. ~~**`bstep_fun` and extraction.**~~ — **done 2026-10-19**: `bstep_fun_correct`
+   (`wf_penv Γ -> wf_cs cs -> (bstep_fun Γ cs s = Some (cs', s') <-> bstep Γ (cs, s) (cs', s'))`),
+   the backward runner `brun`, and `janus/extraction.v` with the OCaml test `janus/test_janus.ml`
+   (`make janus-extract-test`): the extracted interpreter runs every worked example forwards to
+   its exit and backwards to its entry.
 6. **The R-CORE embedding as a formal statement** (Sect. 4): a translation of `cmd` into `stmt`
    and of `cont_cmd` into `cont_stmt` (with `CC_mid_loop ↦ CS_loop_from` or `CS_loop_until`
    chosen by phase), plus a value translation, such that every `exec_ss` step is simulated by

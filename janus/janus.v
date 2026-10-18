@@ -2056,6 +2056,40 @@ Proof.
   apply step_fun_correct in Hs. congruence.
 Qed.
 
+(* The executable backward step: one forward step of the inverted
+   position, read back through the inverter (as bstep_fun in proofs.v). *)
+Definition bstep_fun (Γ : penv) (cs : cont_stmt) (s : store) : option (cont_stmt * store) :=
+  match step_fun Γ (cs_inv cs) s with
+  | Some (d, s') => Some (cs_inv d, s')
+  | None => None
+  end.
+
+Theorem bstep_fun_correct :
+  forall Γ cs s cs' s', wf_penv Γ -> wf_cs cs ->
+    (bstep_fun Γ cs s = Some (cs', s') <-> bstep Γ (cs, s) (cs', s')).
+Proof.
+  intros Γ cs s cs' s' HΓ Hwf; unfold bstep_fun; split.
+  - intros H.
+    destruct (step_fun Γ (cs_inv cs) s) as [[d s0]|] eqn:E; [| discriminate].
+    injection H as <- <-. apply step_fun_correct in E.
+    apply inv_step_reverses in E; [| apply wf_cs_cs_inv; exact Hwf].
+    rewrite cs_inv_involutive in E. exact E.
+  - intros H. unfold bstep in H.
+    assert (Hwf' : wf_cs cs') by (eapply wf_cs_step_reflected; eassumption).
+    apply inv_step_reverses in H; [| exact Hwf'].
+    apply step_fun_correct in H. rewrite H, cs_inv_involutive. reflexivity.
+Qed.
+
+(* A bounded backward runner. *)
+Fixpoint brun (Γ : penv) (n : nat) (cfg : cont_stmt * store) : cont_stmt * store :=
+  match n with
+  | O => cfg
+  | S n' => match bstep_fun Γ (fst cfg) (snd cfg) with
+            | Some cfg' => brun Γ n' cfg'
+            | None => cfg
+            end
+  end.
+
 Lemma rename_expr_id : forall e, rename_expr (fun v => v) e = e.
 Proof. induction e; simpl; congruence. Qed.
 
@@ -2400,6 +2434,12 @@ Example j_divmod_inverse :
   = (CS_post (inv ex_divmod), ex_divmod_pre).
 Proof. vm_compute. reflexivity. Qed.
 
+(* The backward runner undoes the whole run of ex_divmod, from its exit
+   back to its entry, without the inverse program. *)
+Example j_divmod_brun :
+  brun Γ0 10%nat (CS_post ex_divmod, ex_divmod_post) = (CS_pre ex_divmod, ex_divmod_pre).
+Proof. vm_compute. reflexivity. Qed.
+
 (* ---- 15f. Another store size ---- *)
 
 (* The results of sections 1-14b hold for every number of variables and
@@ -2556,3 +2596,5 @@ Print Assumptions j_divmod_inverse.
 Print Assumptions j_small_run.
 Print Assumptions j_small_inverse.
 Print Assumptions j_small_oob_stuck.
+Print Assumptions bstep_fun_correct.
+Print Assumptions j_divmod_brun.
