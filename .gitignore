@@ -13,3 +13,8 @@ test_interp
 witness_driver
 difftest/*.cmi
 difftest/*.cmo
+janus/janus_interp.ml
+janus/janus_interp.mli
+janus/*.cmi
+janus/*.cmo
+janus/test_janus

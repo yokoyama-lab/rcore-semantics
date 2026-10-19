@@ -32,7 +32,7 @@ Loop_ds (fix, exit)	Fig. 2c	L_Base	extended	Exit test s(Y) = t versus s y <> Vni
 Loop_ds (fix, iterate)	Fig. 2c	L_Rec	identical	s(Y) = f and s1(X) = f; f abbreviates nil, so the guards coincide.
 
 # --- token-based small-step semantics (ss) -------------------------------
-AsnSet_ss + AsnClear_ss	Fig. 9b	S_Asn	repaired	THE DEFECT. The printed rules carry e <> nil and d <> nil, so neither fires when the target and the value of the right-hand side are both nil, although ds is defined there and AsnClear_fss has no such premise. Merging them into one rule whose only premises are the eval_expr and odot equations closes the gap. See rc2026_theorem1_fails_as_printed_full.
+AsnSet_ss + AsnClear_ss	Fig. 9b	S_Asn	repaired	THE DEFECT. The printed rules carry e <> nil and d <> nil, so neither fires when the target and the value of the right-hand side are both nil, although ds is defined there and AsnClear_fss has no such premise. Merging them into one rule whose only premises are the eval_expr and odot equations closes the gap. See rc2026_theorem1_fails_as_printed_all_printed (every leg printed); rc2026_theorem1_fails_as_printed_full checks the printed ss against the amended ds and ss.
 LoopEnter_ss	Fig. 9b	S_LoopEnter	extended	s(X) = t versus s x <> Vnil. See rc2026_loop_guards_are_stricter.
 LoopExit_ss	Fig. 9b	S_LoopExit	extended	s(Y) = t versus s y <> Vnil.
 LoopIter1_ss	Fig. 9b	S_LoopIter1	identical	s(Y) = f and s y = Vnil coincide.

@@ -20,6 +20,7 @@ import sys
 import tempfile
 
 SRC = "janus/janus.v"
+LV = "janus/lv.v"
 ROCQ = os.environ.get("ROCQ", "rocq")
 
 # (description, [(old, new), ...], expected first failing result)
@@ -28,9 +29,9 @@ ROCQ = os.environ.get("ROCQ", "rocq")
 # thing to break (it is a proof about the definition being mutated, not one
 # of the properties under test).
 MUTANTS = [
-    ("J_Loop_Iter2: guard e1 = 0 flipped to e1 <> 0",
-     [("  | J_Loop_Iter2 : forall e1 s1 s2 e2 s,\n      eval s e1 = 0 ->",
-       "  | J_Loop_Iter2 : forall e1 s1 s2 e2 s,\n      eval s e1 <> 0 ->")],
+    ("J_Loop_Iter2: guard e1 false flipped to e1 true",
+     [("  | J_Loop_Iter2 : forall e1 s1 s2 e2 s,\n      truth s e1 = Some false ->",
+       "  | J_Loop_Iter2 : forall e1 s1 s2 e2 s,\n      truth s e1 = Some true ->")],
      "jstep_bwd_deterministic"),
     ("J_Call_Enter: premise call_ok removed",
      [("  | J_Call_Enter : forall p ys s,\n      call_ok (Γ p) ys = true ->\n",
@@ -63,13 +64,50 @@ MUTANTS = [
        "  | Saass a e1 op e2  => Saass a e1 op e2")],
      "inv_step_reverses_cfg"),
     ("E_IfT: fi assertion polarity flipped",
-     [("      eval s e1 <> 0 -> exec Γ a s s' -> eval s' e2 <> 0 ->\n      exec Γ (Sif e1 a b e2) s s'",
-       "      eval s e1 <> 0 -> exec Γ a s s' -> eval s' e2 = 0 ->\n      exec Γ (Sif e1 a b e2) s s'")],
+     [("      truth s e1 = Some true -> exec Γ a s s' -> truth s' e2 = Some true ->\n      exec Γ (Sif e1 a b e2) s s'",
+       "      truth s e1 = Some true -> exec Γ a s s' -> truth s' e2 = Some false ->\n      exec Γ (Sif e1 a b e2) s s'")],
      "exec_jstar_mut"),
     ("E_Local: outer value not restored",
      [("      exec Γ (Slocal x e1 st e2) s (update s1 x (s x))",
        "      exec Γ (Slocal x e1 st e2) s s1")],
      "exec_jstar_mut"),
+    # Partial evaluation (section 2): each mutant restores a behaviour of
+    # the total evaluation or of another Janus dialect.
+    ("Bdiv: a zero divisor yields 0 instead of no value",
+     [("  | Bdiv   => if Z.eqb b 0 then None else Some (Z.div a b)",
+       "  | Bdiv   => Some (Z.div a b)")],
+     "j_div_by_zero_stuck"),
+    ("Bdiv: rounds towards zero (Z.quot) instead of minus infinity",
+     [("  | Bdiv   => if Z.eqb b 0 then None else Some (Z.div a b)",
+       "  | Bdiv   => if Z.eqb b 0 then None else Some (Z.quot a b)")],
+     "j_div_run"),
+    ("aread: an out-of-bounds read yields 0 instead of no value",
+     [("  match idx z with Some i => Some (aget s a i) | None => None end.",
+       "  match idx z with Some i => Some (aget s a i) | None => Some 0 end.")],
+     "j_oob_read_stuck"),
+    ("eval: && short-circuits on a false left operand",
+     [("  | Ebin op e1 e2 => match eval s e1, eval s e2 with\n",
+       "  | Ebin Bland e1 e2 => match eval s e1 with\n"
+       "                        | Some 0 => Some 0\n"
+       "                        | Some v1 => match eval s e2 with\n"
+       "                                     | Some v2 => apply_bin Bland v1 v2\n"
+       "                                     | None => None end\n"
+       "                        | None => None end\n"
+       "  | Ebin op e1 e2 => match eval s e1, eval s e2 with\n")],
+     "j_strict_and_stuck"),
+    # janus/lv.v: undo each repair of the Lanese-Vidal rules (target LV).
+    ("lv: repaired LoopBase tests entry(s1) again (erratum E1)",
+     [("      l2' <> (if fixed then (r, pfx (p ++ [DLoop]) (entry_pt s2))         (* E1 *)",
+       "      l2' <> (if fixed then (r, pfx (p ++ [DDo]) (entry_pt s1))         (* E1 *)")],
+     "e1_fixed_no_escape", LV),
+    ("lv: repaired LoopMain forbids an unreachable label instead of exit(s2) (erratum E2)",
+     [("      (fixed = true -> l <> (r, pfx (p ++ [DLoop]) (exit_pt s2))) ->         (* E2 *)",
+       "      (fixed = true -> l <> (r, PStop)) ->         (* E2 *)")],
+     "e2_fixed_stuck", LV),
+    ("lv: repaired backward Skip tests l' -> l'' instead of l -> l' (erratum E3)",
+     [("      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l l') ->",
+       "      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l' l'') ->")],
+     "e3_fixed_rejects", LV),
 ]
 
 HEADER = re.compile(
@@ -85,13 +123,18 @@ def enclosing(lines, lineno):
     return "?"
 
 
-def build(text):
+def build(text, target=SRC):
     d = tempfile.mkdtemp(prefix="janus-mut-")
     try:
         os.makedirs(os.path.join(d, "janus"))
-        with open(os.path.join(d, SRC), "w") as f:
+        if target != SRC:
+            # lv.v imports janus.v: build the unmutated janus.v first
+            shutil.copy(SRC, os.path.join(d, SRC))
+            subprocess.run([ROCQ, "c", "-Q", ".", "RCore", SRC], cwd=d, check=True,
+                           capture_output=True, text=True, timeout=1800)
+        with open(os.path.join(d, target), "w") as f:
             f.write(text)
-        r = subprocess.run([ROCQ, "c", "-Q", ".", "RCore", SRC], cwd=d,
+        r = subprocess.run([ROCQ, "c", "-Q", ".", "RCore", target], cwd=d,
                            capture_output=True, text=True, timeout=1800)
         out = r.stdout + r.stderr
         if r.returncode == 0:
@@ -114,8 +157,13 @@ def main():
     good, _ = build(text)
     print(f"control (unmutated)           : {'compiles' if good else 'FAILS'}")
     ok &= good
-    for i, (desc, reps, expected) in enumerate(MUTANTS, 1):
-        mut = text
+    good_lv, _ = build(open(LV).read(), LV)
+    print(f"control lv.v (unmutated)      : {'compiles' if good_lv else 'FAILS'}")
+    ok &= good_lv
+    for i, m in enumerate(MUTANTS, 1):
+        desc, reps, expected = m[:3]
+        target = m[3] if len(m) > 3 else SRC
+        mut = text if target == SRC else open(target).read()
         for old, new in reps:
             n = mut.count(old)
             if n != 1:
@@ -124,7 +172,7 @@ def main():
                 break
             mut = mut.replace(old, new)
         else:
-            compiled, line = build(mut)
+            compiled, line = build(mut, target)
             mlines = mut.split("\n")
             got = "(compiles!)" if compiled else (enclosing(mlines, line) if line else "?")
             hit = (not compiled) and got == expected

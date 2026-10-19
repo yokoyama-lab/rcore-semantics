@@ -5,7 +5,7 @@
 > 彼らの Loop Lemma（到達可能配置上の ⇀ iff ↽）は、こちらでは後向き関係を逆関係として定義するため定義上成り立ち、内容は前向き決定性・整形式性下の後向き決定性・`inv_step_reverses` に移る。
 > 彼らの規則の正確な形（図）は本稿では読めていないため未検証として明示する。
 
-Status (2026-09-26): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 98 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-10-18): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 110 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -78,7 +78,7 @@ paragraph, cite the LNCS version. Their reference [15] to Makino–Yokoyama is p
 | **Definition 1** (reachable configuration, p.197; text L586–598): obtainable from an initial ⟨ε, ℓ1, ℓ2, []⟩ by (⇀ ∪ ↽)*; "This rules out, e.g., the case of configurations ⟨σ, ℓ, ℓ′, π⟩ where ℓ and ℓ′ are not the two ends of an edge of the CFG" | not needed as a hypothesis; the only hypothesis is `wf_cs` (and `wf_penv Γ`) | See the table below. |
 | **Lemma 3 (loop lemma)** (p.198; text L601–612): for a reachable ⟨σ,ℓ1,ℓ2,π⟩, `⇀` to ⟨σ′,…⟩ iff ⟨σ′,…⟩ `↽` back. "The proof is by case distinction on the applied rule. Full details can be found in the extended version [13]." | `bstep Γ cfg cfg' := jstep Γ cfg' cfg`, so "⇀ iff ↽" holds **by definition**. The content moves to three theorems: (a) `jstep_deterministic` (forward determinism, no hypothesis); (b) `jstep_bwd_deterministic_tgt` / `bstep_deterministic` (backward determinism under `wf_cs` of the common target, **no reachability**); (c) `inv_step_reverses` / `bstep_is_fwd_of_inv` (under `wf_cs`: the backward relation is computed by running the inverted program forwards). | (inferred) In their setting the backward relation is given by a second set of rules (Fig. 14/15), so the Loop Lemma is a genuine theorem relating two definitions. In ours the second definition is the pair `inv`/`cs_inv`, and (c) is the theorem relating it to the converse; (a)+(b) are what make the converse a *function*, which the Loop Lemma alone does not give (it states existence of an inverse step, not uniqueness — the extraction does not show a determinism lemma in the conference text). |
 | Equivalence with the big-step semantics of the literature: asserted in §4 (text L613–617), proofs in the extended version | **done** (2026-09-26): `exec_iff_jstar` — our big-step `exec` is exactly the entry-to-exit runs of `jstep` | Theirs is in the extended version (arXiv:2602.16913, not read here); ours is mechanized. We also derive big-step inverter correctness from step-level reversibility (`exec_inv_iff`). |
-| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 98 results, all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
+| Mechanization: none (rc-survey card, "手法"; no proof assistant is mentioned anywhere in the extraction) | Rocq 9.1.1, axiom-free (`make janus-audit`) | 110 results (2026-10-18; 98 on 2026-09-26), all `Qed`, every one `Closed under the global context`; audited by the same script as `proofs.v` (`tools/audit.sh` with `SRC=janus/janus.v`). |
 
 ### Conditions under which the Loop Lemma holds
 
@@ -105,8 +105,10 @@ New here:
   (added 2026-09-24; `RULES.md` §1): the no-aliasing rule becomes a decidable side condition
   `call_ok` on the call rules, and **`local`/`delocal`** blocks (a frame saves the shadowed
   value; the delocal assertion is where stuckness depends on data). The whole theorem package
-  carries over. Whether it "scales" in their sense is answered for their whole fragment
-  except `/` and `%` (RULES.md §7).
+  carries over. Whether it "scales" in their sense is answered for their whole fragment,
+  `/` and `%` with partial expression evaluation included since 2026-10-18 (RULES.md §1, §7).
+  **Correction (2026-10-18):** until then this bullet said "except `/` and `%`", but `<=` and
+  `>=` of their Fig. 1 were missing too; both were added with `/` and `%`.
 - **Per-rule partial injectivity, mechanized.** The property proved is that each of the 31
   inference rules is a partial injection on well-formed configurations (`RULES.md` §5), not only
   that every step has an inverse step. This is the meta-level reversibility of Makino–Yokoyama,
@@ -209,7 +211,7 @@ What the texts say, by claim:
 | Big-step inverter correctness | Known: Theorem 4 (Statement inverter) of Yokoyama–Glück, PEPM 2007 (`σ ⊢ s ⇒ σ′ ⟺ σ′ ⊢ I⟦s⟧ ⇒ σ`; checked in the paper itself 2026-09-26; LLS L149 cites it as [20, Theorem 4], and an earlier version of this row misattributed it to Yokoyama–Axelsen–Glück 2008, whose Theorem 1 is forward/backward determinism); mechanized by PPR (Matita) and PyJanus (`exec_iff`). LV's Lemma 4 is the static `flow⁻¹(s) = flow(I⟦s⟧)`. | **not new as a statement**; new only as a *derivation* from step-level reversibility (`exec_inv` via `jstar_inv`) |
 
 Consequently, a paper may say, citing these rows: (i) a control-token semantics for Janus, which
-answers the question of LV RC 2026 §5; (ii) the first mechanization of a history-free reversible
+answers the question of LV RC 2026 §4 (printed p.198; the chapter has no §5 — corrected 2026-10-18 against the proceedings PDF); (ii) the first mechanization of a history-free reversible
 small-step semantics for Janus; (iii) backward determinism under a decidable syntactic condition
 instead of reachability; (iv) parameters and locals beyond the LV/LLS fragment; (v) mechanized
 big-step equivalence, with big-step inverter correctness as a corollary. It must **not** present
@@ -291,3 +293,58 @@ conference proceedings were not searched.
   - `docs/40_findings.md` L50–62; `docs/50_forward_citations.md` L110–118;
     `docs/40_discrepancies.md` L94; `docs/forward/core.md` L260–290, L329–352, L394,
     L426–435, L490–494, L542–545.
+
+---
+
+## 6. Mechanized comparison: `lv.v` (2026-10-18)
+
+Their figures were read from the proceedings PDF (LNCS Figs. 8, 9, 11, 12, 14, 15) and the
+arXiv v2 PDF (Figs. 9, 10, 12, 13, 16, 17); the rules are identical in the two versions.
+`janus/lv.v` defines their configurations ⟨σ, ℓ, ℓ′, π⟩ and both rule sets over the fragment
+shared with `janus.v` (no locals, no parameters). A label is the position of its block — root
+(main, procedure q, or q⁻¹) and path — so labels are unique and `block`, `ctx`, `entry`, `exit`,
+`flow` are functions of the syntax; a stack element loop1(ℓ1, s1, ℓ2, s2) keeps its two labels.
+
+**Simulation.** `phi` reads ⟨ℓ, ℓ′, π⟩ off a token position (next label from the position, last
+label and stack from the context spine). `lv_fwd_sim`: every `jstep` either leaves `phi`
+unchanged (the five administrative rules) or is one forward step ⇀; `lv_bwd_sim`: under `wf_cs`,
+read backwards it is one backward step ↽. Both hold for the printed and the repaired rules.
+`exec_lv`: a big-step execution of main is a ⇀-run from ⟨σ, start, entry(main), []⟩ to
+⟨σ′, exit(main), stop, []⟩ and a ↽-run back — their Lemma 1 (LNCS; arXiv Lemma 3), "only if",
+from any store. **Converse (2026-10-18):** every step of the *repaired* machine from the
+configuration of a token is matched by token steps (`lv_complete_step`, `lv_complete_run`;
+the CFG lemma `edge_under` says that out of a statement the root's edges are its own flow edges
+or the exit edge to the context's successor). Hence `lv_lemma1`: `exec Γ main s s'` iff the
+repaired machine runs from ⟨s, start, entry(main), []⟩ to ⟨s′, exit(main), stop, []⟩ — their
+Lemma 1 in both directions, from any store. The proof needs the repairs of E1 and E2: undoing
+either one breaks `complete_until` resp. `complete_cs` (checked on a copy without the examples),
+and `make janus-mutants` checks that each repair is caught by its example.
+
+**Loop Lemma (2026-10-19).** The backward machine is complete in the same sense (`bdec_cs`:
+every backward step from the configuration of a token is undone by a token step, using that a
+reachable token at the entry of a loop body has e2 false, `gok`). With `lv_loop_fwd` and
+`lv_loop_bwd` this gives `lv_loop_lemma`: for reachable tokens `cs`, `cs'`,
+`Phi cs s ⇀ Phi cs' s'` iff `Phi cs' s' ↽ Phi cs s`, for the repaired rules. Their statement
+(LNCS Lemma 3, arXiv Lemma 5) assumes only the left configuration reachable; that is too weak
+for right-to-left even with the repairs (E4 below).
+
+**Errata (machine-checked examples).** Read literally:
+
+| | Rule (LNCS fig.) | As printed | Consequence | Example in `lv.v` | Repair |
+|---|---|---|---|---|---|
+| E1 | forward LoopBase (Fig. 12) | ℓ′2 ≠ entry(s1) | entry(s1) is never a successor of ℓ2, so LoopBase may go to entry(s2) and drop loop1: `from 1 do skip loop Y += 1 until 1` stops with Y = 0 and with Y = 1 (Janus: Y = 0 only), against their Lemma 1 | `e1_printed_two_results`, `e1_janus_one_result` | ℓ′2 ≠ entry(s2) (`e1_fixed_no_escape`) |
+| E2 | forward LoopMain (Fig. 12) | no condition on ℓ | at the iteration point (ℓ = exit(s2), loop2 on top) a true e1 re-enters the loop where Janus and their stack semantics (Fig. 5) are stuck; the step has no ↽-inverse, so their Loop Lemma (LNCS Lemma 3, arXiv Lemma 5) fails at a reachable configuration of `from Y = 0 do skip loop skip until Y = 1` | `e2_printed_loop_lemma_fails` | ℓ ≠ exit(s2), as in their backward LoopMain (`e2_fixed_stuck`) |
+| E3 | backward AssVar, AssArr, Skip (Fig. 14) | premise ℓ″ −1→ ℓ′, ℓ free | the recovered last label is arbitrary; from the final configuration of `Y += 1; skip` the backward run can get stuck before undoing `Y += 1` | `e3_printed_backward_lost` | also ℓ −→ ℓ′, as in backward Call (`e3_fixed_rejects`) |
+
+| E4 | Loop Lemma (LNCS Lemma 3) | only the left configuration reachable | backward IfTrue2, LoopBase, Loop1, Loop2, LoopMain, IfTrue1, Call leave the next label of their source free, so for the reachable end of a then-branch of `if 1 then skip else skip fi 1` a configuration with next label start steps back to it, but no forward step goes there | `e4_loop_lemma_needs_both_reachable` | assume both configurations reachable (`lv_loop_lemma`) |
+
+**Prior reports (checked 2026-10-19).** None found. Semantic Scholar: arXiv:2602.16913 has 0
+citations (the LNCS DOI is not indexed); OpenAlex: the arXiv version is cited once, by the LNCS
+version itself, and the LNCS version 0 times; Crossref: no work registered as an update
+(erratum) of doi:10.1007/978-3-032-30839-9_11, `is-referenced-by-count` 0; arXiv: v2
+(2026-02-26) is still the latest version, and a cs.PL search for Janus finds nothing later; a
+web search for an erratum or correction finds nothing. Not searched: ACM DL, Google Scholar.
+
+E1 and E3 look like typos (entry(s1) for entry(s2); ℓ″ −1→ ℓ′ for ℓ′ −1→ ℓ). E2 is a missing
+side condition: the backward LoopMain has it, the forward one does not.
+

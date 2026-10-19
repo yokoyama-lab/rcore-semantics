@@ -33,16 +33,23 @@
       big-step equivalence           [exec_iff_jstar], with
                                      [exec_deterministic], [exec_inv_iff]
 
-  Scope.  This is Janus with arrays (a[e1] op= e2, four global arrays of
-  fixed length) and WITHOUT the division-like operators / and % (whose
-  partiality is orthogonal to the control-token question); an
-  out-of-bounds array read in an expression yields 0.  Procedures take call-by-reference parameters
-  (section 3a); the no-aliasing rule is the decidable side condition
-  [call_ok] of the call/uncall rules.  [local x = e1; s; delocal x = e2]
-  blocks shadow x; the frame [CS_local] saves the outer value.  Values
-  are unbounded integers (Z).  All expression evaluation is therefore
-  total, and the only partiality of the semantics is in the loop guards,
-  the call side condition, the delocal assertion and array bounds.
+  Scope.  This is Janus with global arrays (a[e1] op= e2) and the full
+  operator set of Lanese-Vidal's Fig. 1,
+  including / and % and <= and >=.  Expression evaluation is PARTIAL
+  ([eval : store -> expr -> option Z], section 2): division or remainder
+  by zero and an out-of-bounds array read have no value, and a step whose
+  premise needs that value is stuck, exactly like a failed assertion.
+  Evaluation is strict (both operands of every operator, && and ||
+  included, are evaluated), as in the big-step rules of Lanese-Vidal's
+  Fig. 2; / and % round towards minus infinity (Z.div, Z.modulo), as
+  Haskell's div/mod in the jana interpreter.  Procedures take
+  call-by-reference parameters (section 3a); the no-aliasing rule is the
+  decidable side condition [call_ok] of the call/uncall rules.
+  [local x = e1; s; delocal x = e2] blocks shadow x; the frame [CS_local]
+  saves the outer value.  Values are unbounded integers (Z).  The number
+  of variables, the number of arrays and the array length are implicit
+  arguments [nv na asize] of every definition and theorem (Section Janus),
+  so the results hold for stores of every size.
 
   Design.  R-CORE's [from x loop c until y] is the Janus loop
   [from x do skip loop c until y].  R-CORE needs a single "mid-loop" token
@@ -74,33 +81,22 @@ Set Implicit Arguments.
 (* 1. Syntax                                                          *)
 (* ================================================================= *)
 
-(* Ten variables X0..X9, as in proofs.v: [var := Fin.t 10]. *)
-Definition var := Fin.t 10.
+(* The development is generic in the size of the store: [nv] scalar
+   variables and [na] global arrays, each of length [asize].  They are
+   implicit arguments of every definition and result of sections 1-14,
+   so each theorem holds for every size; only the worked examples of
+   section 15 fix nv = 10, na = 4, asize = 8. *)
+Section Janus.
+Context {nv na asize : nat}.
 
-Definition X0 : var := Fin.F1.
-Definition X1 : var := Fin.FS Fin.F1.
-Definition X2 : var := Fin.FS (Fin.FS Fin.F1).
-Definition X3 : var := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
-Definition X4 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))).
-Definition X5 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))).
-Definition X6 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))).
-Definition X7 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))).
-Definition X8 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))))).
-Definition X9 : var := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))))).
+Definition var := Fin.t nv.
+Definition arr := Fin.t na.
 
-(* Arrays: four global arrays A0..A3 of fixed length [asize]. *)
-Definition asize : nat := 8.
-Definition arr := Fin.t 4.
-Definition A0 : arr := Fin.F1.
-Definition A1 : arr := Fin.FS Fin.F1.
-Definition A2 : arr := Fin.FS (Fin.FS Fin.F1).
-Definition A3 : arr := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
-
-(* Stores: the ten scalar variables and the four arrays, both as vectors,
-   so that store equality stays extensional without an axiom. *)
+(* Stores: the scalar variables and the arrays, both as vectors, so that
+   store equality stays extensional without an axiom. *)
 Record store : Type := mkstore {
-  sv : Vector.t Z 10;
-  sa : Vector.t (Vector.t Z asize) 4
+  sv : Vector.t Z nv;
+  sa : Vector.t (Vector.t Z asize) na
 }.
 
 Definition lookup (s : store) : var -> Z := Vector.nth (sv s).
@@ -131,17 +127,17 @@ Local Open Scope Z_scope.
 Definition idx (z : Z) : option (Fin.t asize) :=
   if Z.ltb z 0 then None else fin_of_nat (Z.to_nat z) asize.
 
-(* Array read in an expression.  Kept total: an out-of-bounds read yields
-   0 (a deviation from Janus, where it is an error; out-of-bounds UPDATES
-   are stuck, see J_AAsn). *)
-Definition aread (s : store) (a : arr) (z : Z) : Z :=
-  match idx z with Some i => aget s a i | None => 0 end.
+(* Array read in an expression: no value when out of bounds (an error in
+   Janus; out-of-bounds UPDATES are stuck too, see J_AAsn). *)
+Definition aread (s : store) (a : arr) (z : Z) : option Z :=
+  match idx z with Some i => Some (aget s a i) | None => None end.
 
 (* Binary operators.  Band/Bor are bitwise; Bland/Blor are logical and the
-   comparisons return 1 or 0.  Truth is "nonzero". *)
+   comparisons return 1 or 0.  Truth is "nonzero".  Bdiv/Bmod are the
+   only partial ones (no value for a zero divisor). *)
 Inductive binop : Type :=
-  | Bplus | Bminus | Btimes | Bxor | Band | Bor
-  | Blt | Bgt | Beq | Bneq | Bland | Blor.
+  | Bplus | Bminus | Btimes | Bdiv | Bmod | Bxor | Band | Bor
+  | Blt | Bgt | Ble | Bge | Beq | Bneq | Bland | Blor.
 
 Inductive expr : Type :=
   | Econst (z : Z)
@@ -197,33 +193,52 @@ Record proc : Type := mkproc { formals : list var; body : stmt }.
 Definition penv := pid -> proc.
 
 (* ================================================================= *)
-(* 2. Expression evaluation (total)                                    *)
+(* 2. Expression evaluation (partial)                                  *)
 (* ================================================================= *)
 
 Definition b2z (b : bool) : Z := if b then 1 else 0.
 
-Definition apply_bin (op : binop) (a b : Z) : Z :=
+Definition apply_bin (op : binop) (a b : Z) : option Z :=
   match op with
-  | Bplus  => a + b
-  | Bminus => a - b
-  | Btimes => a * b
-  | Bxor   => Z.lxor a b
-  | Band   => Z.land a b
-  | Bor    => Z.lor a b
-  | Blt    => b2z (Z.ltb a b)
-  | Bgt    => b2z (Z.ltb b a)
-  | Beq    => b2z (Z.eqb a b)
-  | Bneq   => b2z (negb (Z.eqb a b))
-  | Bland  => b2z (negb (Z.eqb a 0) && negb (Z.eqb b 0))
-  | Blor   => b2z (negb (Z.eqb a 0) || negb (Z.eqb b 0))
+  | Bplus  => Some (a + b)
+  | Bminus => Some (a - b)
+  | Btimes => Some (a * b)
+  | Bdiv   => if Z.eqb b 0 then None else Some (Z.div a b)
+  | Bmod   => if Z.eqb b 0 then None else Some (Z.modulo a b)
+  | Bxor   => Some (Z.lxor a b)
+  | Band   => Some (Z.land a b)
+  | Bor    => Some (Z.lor a b)
+  | Blt    => Some (b2z (Z.ltb a b))
+  | Bgt    => Some (b2z (Z.ltb b a))
+  | Ble    => Some (b2z (Z.leb a b))
+  | Bge    => Some (b2z (Z.leb b a))
+  | Beq    => Some (b2z (Z.eqb a b))
+  | Bneq   => Some (b2z (negb (Z.eqb a b)))
+  | Bland  => Some (b2z (negb (Z.eqb a 0) && negb (Z.eqb b 0)))
+  | Blor   => Some (b2z (negb (Z.eqb a 0) || negb (Z.eqb b 0)))
   end.
 
-Fixpoint eval (s : store) (e : expr) : Z :=
+(* Strict: an operator applies only when both operands have a value. *)
+Fixpoint eval (s : store) (e : expr) : option Z :=
   match e with
-  | Econst z      => z
-  | Evar x        => s x
-  | Ebin op e1 e2 => apply_bin op (eval s e1) (eval s e2)
-  | Eidx a e      => aread s a (eval s e)
+  | Econst z      => Some z
+  | Evar x        => Some (s x)
+  | Ebin op e1 e2 => match eval s e1, eval s e2 with
+                     | Some v1, Some v2 => apply_bin op v1 v2
+                     | _, _ => None
+                     end
+  | Eidx a e      => match eval s e with
+                     | Some z => aread s a z
+                     | None => None
+                     end
+  end.
+
+(* A guard: [Some true] if e has a nonzero value, [Some false] if its
+   value is 0, [None] if it has no value (then no rule tests it). *)
+Definition truth (s : store) (e : expr) : option bool :=
+  match eval s e with
+  | Some v => Some (negb (Z.eqb v 0))
+  | None => None
   end.
 
 (* ================================================================= *)
@@ -357,14 +372,18 @@ Inductive cont_stmt : Type :=
 (* 5. Small-step semantics                                            *)
 (* ================================================================= *)
 
-(* Guards: [eval s e <> 0] is "e is true", [eval s e = 0] is "e is false".
-   The store is unchanged except in J_Asn. *)
+(* Guards: [truth s e = Some true] is "e is true", [truth s e = Some false]
+   is "e is false"; an expression without a value satisfies neither, so
+   the configuration is stuck.  Likewise every rule that uses the value of
+   an expression has the premise [eval s e = Some v].  The store changes
+   only in J_Asn, J_Local_Enter, J_Local_Exit and J_AAsn. *)
 Inductive jstep (Γ : penv) : cont_stmt * store -> cont_stmt * store -> Prop :=
   | J_Skip : forall s,
       jstep Γ (CS_pre Sskip, s) (CS_post Sskip, s)
-  | J_Asn : forall x op e s,
+  | J_Asn : forall x op e s v,
+      eval s e = Some v ->
       jstep Γ (CS_pre (Sass x op e), s)
-              (CS_post (Sass x op e), update s x (apply_upd op (s x) (eval s e)))
+              (CS_post (Sass x op e), update s x (apply_upd op (s x) v))
   | J_Seq_Enter : forall s1 s2 s,
       jstep Γ (CS_pre (Sseq s1 s2), s) (CS_seq_L (CS_pre s1) s2, s)
   | J_Seq_Mid : forall s1 s2 s,
@@ -372,32 +391,32 @@ Inductive jstep (Γ : penv) : cont_stmt * store -> cont_stmt * store -> Prop :=
   | J_Seq_Exit : forall s1 s2 s,
       jstep Γ (CS_seq_R s1 (CS_post s2), s) (CS_post (Sseq s1 s2), s)
   | J_If_True : forall e1 s1 s2 e2 s,
-      eval s e1 <> 0 ->
+      truth s e1 = Some true ->
       jstep Γ (CS_pre (Sif e1 s1 s2 e2), s) (CS_if_then e1 (CS_pre s1) s2 e2, s)
   | J_If_False : forall e1 s1 s2 e2 s,
-      eval s e1 = 0 ->
+      truth s e1 = Some false ->
       jstep Γ (CS_pre (Sif e1 s1 s2 e2), s) (CS_if_else e1 s1 (CS_pre s2) e2, s)
   | J_Fi_True : forall e1 s1 s2 e2 s,
-      eval s e2 <> 0 ->
+      truth s e2 = Some true ->
       jstep Γ (CS_if_then e1 (CS_post s1) s2 e2, s) (CS_post (Sif e1 s1 s2 e2), s)
   | J_Fi_False : forall e1 s1 s2 e2 s,
-      eval s e2 = 0 ->
+      truth s e2 = Some false ->
       jstep Γ (CS_if_else e1 s1 (CS_post s2) e2, s) (CS_post (Sif e1 s1 s2 e2), s)
   | J_Loop_Enter : forall e1 s1 s2 e2 s,
-      eval s e1 <> 0 ->
+      truth s e1 = Some true ->
       jstep Γ (CS_pre (Sloop e1 s1 s2 e2), s) (CS_loop_from e1 s1 s2 e2, s)
   | J_Loop_Do : forall e1 s1 s2 e2 s,
       jstep Γ (CS_loop_from e1 s1 s2 e2, s) (CS_loop_do e1 (CS_pre s1) s2 e2, s)
   | J_Loop_DoDone : forall e1 s1 s2 e2 s,
       jstep Γ (CS_loop_do e1 (CS_post s1) s2 e2, s) (CS_loop_until e1 s1 s2 e2, s)
   | J_Loop_Exit : forall e1 s1 s2 e2 s,
-      eval s e2 <> 0 ->
+      truth s e2 = Some true ->
       jstep Γ (CS_loop_until e1 s1 s2 e2, s) (CS_post (Sloop e1 s1 s2 e2), s)
   | J_Loop_Iter1 : forall e1 s1 s2 e2 s,
-      eval s e2 = 0 ->
+      truth s e2 = Some false ->
       jstep Γ (CS_loop_until e1 s1 s2 e2, s) (CS_loop_loop e1 s1 (CS_pre s2) e2, s)
   | J_Loop_Iter2 : forall e1 s1 s2 e2 s,
-      eval s e1 = 0 ->
+      truth s e1 = Some false ->
       jstep Γ (CS_loop_loop e1 s1 (CS_post s2) e2, s) (CS_loop_from e1 s1 s2 e2, s)
   | J_Call_Enter : forall p ys s,
       call_ok (Γ p) ys = true ->
@@ -439,22 +458,23 @@ Inductive jstep (Γ : penv) : cont_stmt * store -> cont_stmt * store -> Prop :=
       jstep Γ (cs, s) (cs', s') ->
       jstep Γ (CS_uncall p ys cs, s) (CS_uncall p ys cs', s')
   (* local/delocal: the frame saves the outer value of x. *)
-  | J_Local_Enter : forall x e1 st e2 (s : store),
+  | J_Local_Enter : forall x e1 st e2 (s : store) w,
+      eval s e1 = Some w ->
       jstep Γ (CS_pre (Slocal x e1 st e2), s)
-              (CS_local x (s x) e1 (CS_pre st) e2, update s x (eval s e1))
+              (CS_local x (s x) e1 (CS_pre st) e2, update s x w)
   | J_Local_Exit : forall x v e1 st e2 (s : store),
-      s x = eval s e2 ->
+      eval s e2 = Some (s x) ->
       jstep Γ (CS_local x v e1 (CS_post st) e2, s)
               (CS_post (Slocal x e1 st e2), update s x v)
   | J_Ctx_Local : forall x v e1 cs cs' e2 s s',
       jstep Γ (cs, s) (cs', s') ->
       jstep Γ (CS_local x v e1 cs e2, s) (CS_local x v e1 cs' e2, s')
   (* Array update: stuck when the index is out of bounds. *)
-  | J_AAsn : forall a e1 op e2 s i,
-      idx (eval s e1) = Some i ->
+  | J_AAsn : forall a e1 op e2 s z i w,
+      eval s e1 = Some z -> idx z = Some i -> eval s e2 = Some w ->
       jstep Γ (CS_pre (Saass a e1 op e2), s)
               (CS_post (Saass a e1 op e2),
-               aupdate s a i (apply_upd op (aget s a i) (eval s e2))).
+               aupdate s a i (apply_upd op (aget s a i) w)).
 
 (* Backward step: the converse relation. *)
 Definition bstep (Γ : penv) (cfg1 cfg2 : cont_stmt * store) : Prop :=
@@ -720,7 +740,8 @@ Proof.
   - reflexivity.
   - now rewrite update_neq by auto.
   - now rewrite IHHnf1, IHHnf2.
-  - now rewrite IHHnf.
+  - rewrite IHHnf. destruct (eval s e); [| reflexivity].
+    unfold aread, aget; reflexivity.
 Qed.
 
 Lemma eval_agree :
@@ -734,7 +755,8 @@ Proof.
   - reflexivity.
   - now rewrite (Hag _ H).
   - now rewrite IHHnf1, IHHnf2.
-  - rewrite IHHnf. unfold aread, aget. now rewrite Ha.
+  - rewrite IHHnf. destruct (eval s' e); [| reflexivity].
+    unfold aread, aget. now rewrite Ha.
 Qed.
 
 (* Array counterparts: an update of a does not affect an a-free
@@ -746,7 +768,8 @@ Proof.
   - reflexivity.
   - reflexivity.
   - now rewrite IHHnf1, IHHnf2.
-  - rewrite IHHnf. unfold aread, aget; simpl.
+  - rewrite IHHnf. destruct (eval s e); [| reflexivity].
+    unfold aread, aget; simpl.
     now rewrite nth_replace_neq by auto.
 Qed.
 
@@ -761,7 +784,8 @@ Proof.
   - reflexivity.
   - unfold lookup. now rewrite Hv.
   - now rewrite IHHnf1, IHHnf2.
-  - rewrite IHHnf. unfold aread, aget. now rewrite (Hb _ H).
+  - rewrite IHHnf. destruct (eval s' e); [| reflexivity].
+    unfold aread, aget. now rewrite (Hb _ H).
 Qed.
 
 Lemma aget_aupdate_eq : forall s a i v, aget (aupdate s a i v) a i = v.
@@ -782,23 +806,27 @@ Qed.
 (* Partial injectivity of J_AAsn: the index is recovered because e1 does
    not read a, the cell because e2 does not read a and op= is injective. *)
 Lemma aasn_step_injective :
-  forall a e1 op e2 (s1 s2 : store) i1 i2,
+  forall a e1 op e2 (s1 s2 : store) z1 z2 i1 i2 w1 w2,
     anf_expr a e1 -> anf_expr a e2 ->
-    idx (eval s1 e1) = Some i1 -> idx (eval s2 e1) = Some i2 ->
-    aupdate s1 a i1 (apply_upd op (aget s1 a i1) (eval s1 e2))
-      = aupdate s2 a i2 (apply_upd op (aget s2 a i2) (eval s2 e2)) ->
+    eval s1 e1 = Some z1 -> idx z1 = Some i1 -> eval s1 e2 = Some w1 ->
+    eval s2 e1 = Some z2 -> idx z2 = Some i2 -> eval s2 e2 = Some w2 ->
+    aupdate s1 a i1 (apply_upd op (aget s1 a i1) w1)
+      = aupdate s2 a i2 (apply_upd op (aget s2 a i2) w2) ->
     s1 = s2.
 Proof.
-  intros a e1 op e2 [v1 r1] [v2 r2] i1 i2 Ha1 Ha2 Hi1 Hi2 Hu.
+  intros a e1 op e2 [v1 r1] [v2 r2] z1 z2 i1 i2 w1 w2 Ha1 Ha2
+         Hz1 Hi1 Hw1 Hz2 Hi2 Hw2 Hu.
   unfold aupdate, aget in Hu; simpl in Hu. injection Hu as Hv Hr. subst v2.
   assert (Hoff : forall b, b <> a -> Vector.nth r1 b = Vector.nth r2 b).
   { intros b Hb. apply (f_equal (fun r => Vector.nth r b)) in Hr.
     now rewrite !nth_replace_neq in Hr by auto. }
   assert (He1 : eval (mkstore v1 r1) e1 = eval (mkstore v1 r2) e1)
     by (eapply eval_aagree; [exact Ha1 | reflexivity | exact Hoff]).
-  rewrite He1, Hi2 in Hi1. injection Hi1 as ->.
+  rewrite He1, Hz2 in Hz1. injection Hz1 as ->.
+  rewrite Hi2 in Hi1. injection Hi1 as ->.
   assert (He2 : eval (mkstore v1 r1) e2 = eval (mkstore v1 r2) e2)
     by (eapply eval_aagree; [exact Ha2 | reflexivity | exact Hoff]).
+  rewrite He2, Hw2 in Hw1. injection Hw1 as ->.
   apply (f_equal (fun r => Vector.nth r a)) in Hr.
   rewrite !nth_replace_eq in Hr.
   f_equal. apply vec_ext; intro b.
@@ -806,7 +834,7 @@ Proof.
   apply vec_ext; intro j.
   destruct (Fin.eq_dec j i1) as [->|Hj].
   - apply (f_equal (fun w => Vector.nth w i1)) in Hr.
-    rewrite !nth_replace_eq in Hr. simpl in He2. rewrite He2 in Hr.
+    rewrite !nth_replace_eq in Hr.
     eapply apply_upd_injective; exact Hr.
   - apply (f_equal (fun w => Vector.nth w j)) in Hr.
     now rewrite !nth_replace_neq in Hr by auto.
@@ -815,21 +843,22 @@ Qed.
 (* Partial injectivity of the J_Asn rule in the store: two pre-stores
    with the same post-store are equal, provided x is not read by e. *)
 Lemma asn_step_injective :
-  forall x op e (s1 s2 : store),
+  forall x op e (s1 s2 : store) v1 v2,
     nf_expr x e ->
-    update s1 x (apply_upd op (s1 x) (eval s1 e))
-      = update s2 x (apply_upd op (s2 x) (eval s2 e)) ->
+    eval s1 e = Some v1 -> eval s2 e = Some v2 ->
+    update s1 x (apply_upd op (s1 x) v1)
+      = update s2 x (apply_upd op (s2 x) v2) ->
     s1 = s2.
 Proof.
-  intros x op e s1 s2 Hnf Hupd.
+  intros x op e s1 s2 v1 v2 Hnf H1 H2 Hupd.
   assert (Hoff : forall y, y <> x -> s1 y = s2 y)
     by (eapply update_injective_off_x; exact Hupd).
-  assert (Hveq : apply_upd op (s1 x) (eval s1 e) = apply_upd op (s2 x) (eval s2 e))
+  assert (Hveq : apply_upd op (s1 x) v1 = apply_upd op (s2 x) v2)
     by (eapply update_value_at_x; exact Hupd).
   assert (Ha : sa s1 = sa s2) by (eapply update_sa; exact Hupd).
   assert (Hev : eval s1 e = eval s2 e)
     by (eapply eval_agree; [exact Hnf | exact Hoff | exact Ha]).
-  rewrite Hev in Hveq.
+  rewrite Hev, H2 in H1. injection H1 as ->.
   apply apply_upd_injective in Hveq.
   apply store_ext; [intro y | exact Ha].
   destruct (Fin.eq_dec y x) as [->|Hy].
@@ -854,14 +883,16 @@ Qed.
 Lemma local_exit_injective :
   forall x e2 (s1 s2 : store) v,
     nf_expr x e2 ->
-    s1 x = eval s1 e2 -> s2 x = eval s2 e2 ->
+    eval s1 e2 = Some (s1 x) -> eval s2 e2 = Some (s2 x) ->
     update s1 x v = update s2 x v -> s1 = s2.
 Proof.
   intros x e2 s1 s2 v Hnf H1 H2 Hupd.
   assert (Hoff : forall y, y <> x -> s1 y = s2 y)
     by (intros y Hy; eapply update_injective_off_x; [exact Hupd | exact Hy]).
   apply local_enter_injective with (x := x) (v1 := v) (v2 := v); [| exact Hupd].
-  rewrite H1, H2. eapply eval_agree; [exact Hnf | exact Hoff | eapply update_sa; exact Hupd].
+  assert (Hev : eval s1 e2 = eval s2 e2)
+    by (eapply eval_agree; [exact Hnf | exact Hoff | eapply update_sa; exact Hupd]).
+  rewrite Hev, H2 in H1. injection H1 as H1. exact (eq_sym H1).
 Qed.
 
 (* ================================================================= *)
@@ -902,19 +933,23 @@ Ltac use_IH :=
       pose proof (IH _ Hinner) as E; injection E as ? ?; subst; reflexivity
   end.
 
+(* [eval], [truth] and [idx] are functions: two values at the same
+   argument are equal.  Guards with opposite truth values at the same
+   store are then refuted by [congruence]. *)
+Ltac same_value :=
+  repeat match goal with
+  | [ Ha : ?t = Some ?u, Hb : ?t = Some ?w |- _ ] =>
+      rewrite Ha in Hb; injection Hb as Hb; try subst
+  end.
+
 (* No well-formedness hypothesis is needed in the forward direction. *)
 Theorem jstep_deterministic :
   forall Γ cfg cfg1 cfg2,
     jstep Γ cfg cfg1 -> jstep Γ cfg cfg2 -> cfg1 = cfg2.
 Proof.
   intros Γ cfg cfg1 cfg2 H1; revert cfg2.
-  induction H1; intros cfg2 H2; inversion H2; subst;
-    try reflexivity; try contradiction; try kill_post; try use_IH.
-  (* J_AAsn vs J_AAsn: the index is a function of the store. *)
-  all: match goal with
-       | [ Ha : idx ?z = Some ?i, Hb : idx ?z = Some ?j |- _ ] =>
-           rewrite Ha in Hb; injection Hb as ->; reflexivity
-       end.
+  induction H1; intros cfg2 H2; inversion H2; subst; same_value;
+    try reflexivity; try congruence; try kill_post; try use_IH.
 Qed.
 
 (* ================================================================= *)
@@ -1122,15 +1157,16 @@ Proof.
   intros Γ cfg1 cfg2 cfg Hwf1 Hwf2 H1; revert cfg2 Hwf1 Hwf2.
   induction H1; intros cfg2 Hwf1 Hwf2 H2; simpl in *; inversion H2; subst; fold_update;
     try reflexivity;
-    try contradiction;
+    try congruence;
     try kill_post;
     try kill_step_to_pre.
   - (* J_Asn vs J_Asn: recover the pre-store from the common post-store. *)
     assert (Hnf : nf_expr x e) by (wf_inv; assumption).
     match goal with
-    | [ Hupd : update ?sa x _ = update ?sb x _ |- _ ] =>
+    | [ Hupd : update ?sa x (apply_upd _ _ ?va) = update ?sb x (apply_upd _ _ ?vb),
+        Ha : eval ?sa e = Some ?va, Hb : eval ?sb e = Some ?vb |- _ ] =>
         assert (Hss : sa = sb)
-          by (eapply asn_step_injective; [exact Hnf | exact Hupd]);
+          by (eapply asn_step_injective; [exact Hnf | exact Ha | exact Hb | exact Hupd]);
         subst; reflexivity
     end.
   - inversion Hwf1; subst; inversion Hwf2; subst; bwd_ctx IHjstep cs s.
@@ -1158,10 +1194,12 @@ Proof.
   - (* J_AAsn vs J_AAsn *)
     wf_inv.
     match goal with
-    | [ Hu : aupdate ?sb a ?ib _ = aupdate ?sc a ?ic _,
-        Hb : idx (eval ?sb e1) = Some ?ib, Hc : idx (eval ?sc e1) = Some ?ic,
+    | [ Hu : aupdate ?sb a ?ib (apply_upd _ _ ?wb) = aupdate ?sc a ?ic (apply_upd _ _ ?wc),
+        Hzb : eval ?sb e1 = Some ?zb, Hib : idx ?zb = Some ?ib, Hwb : eval ?sb e2 = Some ?wb,
+        Hzc : eval ?sc e1 = Some ?zc, Hic : idx ?zc = Some ?ic, Hwc : eval ?sc e2 = Some ?wc,
         Ha1 : anf_expr a e1, Ha2 : anf_expr a e2 |- _ ] =>
-        rewrite (@aasn_step_injective a e1 op e2 sb sc ib ic Ha1 Ha2 Hb Hc Hu);
+        rewrite (@aasn_step_injective a e1 op e2 sb sc zb zc ib ic wb wc
+                   Ha1 Ha2 Hzb Hib Hwb Hzc Hic Hwc Hu);
         reflexivity
     end.
 Qed.
@@ -1221,10 +1259,11 @@ Qed.
 
 (* A form of J_Asn whose post-store is stated by an equation. *)
 Lemma J_Asn' :
-  forall Γ x op e s s',
-    s' = update s x (apply_upd op (s x) (eval s e)) ->
+  forall Γ x op e s s' v,
+    eval s e = Some v ->
+    s' = update s x (apply_upd op (s x) v) ->
     jstep Γ (CS_pre (Sass x op e), s) (CS_post (Sass x op e), s').
-Proof. intros; subst; constructor. Qed.
+Proof. intros; subst; constructor; assumption. Qed.
 
 Lemma update_shadow : forall s x a b, update (update s x a) x b = update s x b.
 Proof.
@@ -1245,23 +1284,23 @@ Qed.
 (* Forms of the local rules whose saved value and post-store are stated
    by equations. *)
 Lemma J_Local_Enter' :
-  forall Γ x e1 st e2 (s s' : store) v,
-    v = s x -> s' = update s x (eval s e1) ->
+  forall Γ x e1 st e2 (s s' : store) v w,
+    eval s e1 = Some w -> v = s x -> s' = update s x w ->
     jstep Γ (CS_pre (Slocal x e1 st e2), s) (CS_local x v e1 (CS_pre st) e2, s').
-Proof. intros; subst; constructor. Qed.
+Proof. intros; subst; constructor; assumption. Qed.
 
 Lemma J_Local_Exit' :
   forall Γ x v e1 st e2 (s s' : store),
-    s x = eval s e2 -> s' = update s x v ->
+    eval s e2 = Some (s x) -> s' = update s x v ->
     jstep Γ (CS_local x v e1 (CS_post st) e2, s) (CS_post (Slocal x e1 st e2), s').
 Proof. intros; subst; constructor; assumption. Qed.
 
 Lemma J_AAsn' :
-  forall Γ a e1 op e2 (s s' : store) i,
-    idx (eval s e1) = Some i ->
-    s' = aupdate s a i (apply_upd op (aget s a i) (eval s e2)) ->
+  forall Γ a e1 op e2 (s s' : store) z i w,
+    eval s e1 = Some z -> idx z = Some i -> eval s e2 = Some w ->
+    s' = aupdate s a i (apply_upd op (aget s a i) w) ->
     jstep Γ (CS_pre (Saass a e1 op e2), s) (CS_post (Saass a e1 op e2), s').
-Proof. intros; subst; constructor; assumption. Qed.
+Proof. intros; subst; econstructor; eassumption. Qed.
 
 (* Meta-level reversibility, realized syntactically: one forward step of
    cs is one forward step of [cs_inv cs] taken in the opposite direction.
@@ -1275,9 +1314,9 @@ Proof.
   intros Γ cfg cfg' H; induction H; intros Hwf; simpl in *.
   - apply J_Skip.
   - assert (Hnf : nf_expr x e) by (wf_inv; assumption).
-    apply J_Asn'.
-    rewrite update_eq, eval_update_invariant by exact Hnf.
-    rewrite apply_upd_inv, update_cancel. reflexivity.
+    apply J_Asn' with (v := v).
+    + rewrite eval_update_invariant by exact Hnf. exact H.
+    + rewrite update_eq, apply_upd_inv, update_cancel. reflexivity.
   - apply J_Seq_Exit.
   - apply J_Seq_Mid.
   - apply J_Seq_Enter.
@@ -1306,20 +1345,22 @@ Proof.
   - (* J_Local_Enter reversed is J_Local_Exit of the inverse block *)
     assert (Hnf : nf_expr x e1) by (wf_inv; assumption).
     apply J_Local_Exit'.
-    + rewrite update_eq, eval_update_invariant by exact Hnf. reflexivity.
+    + rewrite update_eq, eval_update_invariant by exact Hnf. exact H.
     + rewrite update_shadow, update_same. reflexivity.
   - (* J_Local_Exit reversed is J_Local_Enter of the inverse block *)
     assert (Hnf : nf_expr x e2) by (wf_inv; assumption).
-    apply J_Local_Enter'.
+    apply J_Local_Enter' with (w := s x).
+    + rewrite eval_update_invariant by exact Hnf. exact H.
     + rewrite update_eq. reflexivity.
-    + rewrite eval_update_invariant by exact Hnf.
-      rewrite update_shadow, <- H, update_same. reflexivity.
+    + rewrite update_shadow, update_same. reflexivity.
   - apply J_Ctx_Local;     apply IHjstep; wf_inv; assumption.
   - (* J_AAsn: same index (a not in e1), inverse operator undoes the cell *)
     wf_inv.
-    apply J_AAsn' with (i := i).
-    + rewrite eval_aupdate_invariant by assumption. exact H.
-    + rewrite aget_aupdate_eq, eval_aupdate_invariant, apply_upd_inv by assumption.
+    apply J_AAsn' with (z := z) (i := i) (w := w).
+    + rewrite eval_aupdate_invariant by assumption. assumption.
+    + assumption.
+    + rewrite eval_aupdate_invariant by assumption. assumption.
+    + rewrite aget_aupdate_eq, apply_upd_inv.
       symmetry; apply aupdate_cancel.
 Qed.
 
@@ -1376,7 +1417,7 @@ Definition stmt_eq_dec (a b : stmt) : {a = b} + {a <> b}.
 Proof.
   decide equality;
     first [ apply expr_eq_dec | apply updop_eq_dec | apply Fin.eq_dec
-          | apply Nat.eq_dec | apply (list_eq_dec (@Fin.eq_dec 10)) ].
+          | apply Nat.eq_dec | apply (list_eq_dec (@Fin.eq_dec nv)) ].
 Defined.
 
 (* In each context case the inner step is tried first; if the inner
@@ -1387,25 +1428,44 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
   match cs with
   | CS_pre Sskip => Some (CS_post Sskip, s)
   | CS_pre (Sass x op e) =>
-      Some (CS_post (Sass x op e), update s x (apply_upd op (s x) (eval s e)))
+      match eval s e with
+      | Some v => Some (CS_post (Sass x op e), update s x (apply_upd op (s x) v))
+      | None => None
+      end
   | CS_pre (Sseq s1 s2) => Some (CS_seq_L (CS_pre s1) s2, s)
   | CS_pre (Sif e1 s1 s2 e2) =>
-      if Z.eqb (eval s e1) 0
-      then Some (CS_if_else e1 s1 (CS_pre s2) e2, s)
-      else Some (CS_if_then e1 (CS_pre s1) s2 e2, s)
+      match truth s e1 with
+      | Some true => Some (CS_if_then e1 (CS_pre s1) s2 e2, s)
+      | Some false => Some (CS_if_else e1 s1 (CS_pre s2) e2, s)
+      | None => None
+      end
   | CS_pre (Sloop e1 s1 s2 e2) =>
-      if Z.eqb (eval s e1) 0 then None else Some (CS_loop_from e1 s1 s2 e2, s)
+      match truth s e1 with
+      | Some true => Some (CS_loop_from e1 s1 s2 e2, s)
+      | _ => None
+      end
   | CS_pre (Scall p ys) =>
       if call_ok (Γ p) ys then Some (CS_call p ys (CS_pre (inst (Γ p) ys)), s) else None
   | CS_pre (Suncall p ys) =>
       if call_ok (Γ p) ys
       then Some (CS_uncall p ys (CS_pre (inv (inst (Γ p) ys))), s) else None
   | CS_pre (Slocal x e1 st e2) =>
-      Some (CS_local x (s x) e1 (CS_pre st) e2, update s x (eval s e1))
+      match eval s e1 with
+      | Some w => Some (CS_local x (s x) e1 (CS_pre st) e2, update s x w)
+      | None => None
+      end
   | CS_pre (Saass a e1 op e2) =>
-      match idx (eval s e1) with
-      | Some i => Some (CS_post (Saass a e1 op e2),
-                        aupdate s a i (apply_upd op (aget s a i) (eval s e2)))
+      match eval s e1 with
+      | Some z =>
+          match idx z with
+          | Some i =>
+              match eval s e2 with
+              | Some w => Some (CS_post (Saass a e1 op e2),
+                                aupdate s a i (apply_upd op (aget s a i) w))
+              | None => None
+              end
+          | None => None
+          end
       | None => None
       end
   | CS_post _ => None
@@ -1430,8 +1490,10 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
       | Some (c, t) => Some (CS_if_then e1 c s2 e2, t)
       | None => match cs1 with
                 | CS_post s1 =>
-                    if Z.eqb (eval s e2) 0 then None
-                    else Some (CS_post (Sif e1 s1 s2 e2), s)
+                    match truth s e2 with
+                    | Some true => Some (CS_post (Sif e1 s1 s2 e2), s)
+                    | _ => None
+                    end
                 | _ => None
                 end
       end
@@ -1440,8 +1502,10 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
       | Some (c, t) => Some (CS_if_else e1 s1 c e2, t)
       | None => match cs2 with
                 | CS_post s2 =>
-                    if Z.eqb (eval s e2) 0
-                    then Some (CS_post (Sif e1 s1 s2 e2), s) else None
+                    match truth s e2 with
+                    | Some false => Some (CS_post (Sif e1 s1 s2 e2), s)
+                    | _ => None
+                    end
                 | _ => None
                 end
       end
@@ -1455,16 +1519,20 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
                 end
       end
   | CS_loop_until e1 s1 s2 e2 =>
-      if Z.eqb (eval s e2) 0
-      then Some (CS_loop_loop e1 s1 (CS_pre s2) e2, s)
-      else Some (CS_post (Sloop e1 s1 s2 e2), s)
+      match truth s e2 with
+      | Some true => Some (CS_post (Sloop e1 s1 s2 e2), s)
+      | Some false => Some (CS_loop_loop e1 s1 (CS_pre s2) e2, s)
+      | None => None
+      end
   | CS_loop_loop e1 s1 cs2 e2 =>
       match step_fun Γ cs2 s with
       | Some (c, t) => Some (CS_loop_loop e1 s1 c e2, t)
       | None => match cs2 with
                 | CS_post s2 =>
-                    if Z.eqb (eval s e1) 0
-                    then Some (CS_loop_from e1 s1 s2 e2, s) else None
+                    match truth s e1 with
+                    | Some false => Some (CS_loop_from e1 s1 s2 e2, s)
+                    | _ => None
+                    end
                 | _ => None
                 end
       end
@@ -1495,8 +1563,12 @@ Fixpoint step_fun (Γ : penv) (cs : cont_stmt) (s : store)
       | Some (c, t) => Some (CS_local x v e1 c e2, t)
       | None => match cs1 with
                 | CS_post st =>
-                    if Z.eqb (s x) (eval s e2)
-                    then Some (CS_post (Slocal x e1 st e2), update s x v) else None
+                    match eval s e2 with
+                    | Some w => if Z.eqb (s x) w
+                                then Some (CS_post (Slocal x e1 st e2), update s x v)
+                                else None
+                    | None => None
+                    end
                 | _ => None
                 end
       end
@@ -1512,20 +1584,23 @@ Proof.
     destruct st as [ | x op e | a b | e1 a b e2 | e1 a b e2 | p ys | p ys | x e1 a e2
                    | r e1 op e2].
     + injection H as ? ?; subst; constructor.
+    + destruct (eval s e) eqn:Ev; [| discriminate].
+      injection H as ? ?; subst; constructor; exact Ev.
     + injection H as ? ?; subst; constructor.
-    + injection H as ? ?; subst; constructor.
-    + destruct (Z.eqb (eval s e1) 0) eqn:E; injection H as ? ?; subst; constructor.
-      * apply Z.eqb_eq; exact E.
-      * apply Z.eqb_neq; exact E.
-    + destruct (Z.eqb (eval s e1) 0) eqn:E; [discriminate |].
-      injection H as ? ?; subst; constructor. apply Z.eqb_neq; exact E.
+    + destruct (truth s e1) as [[|]|] eqn:E; [| | discriminate];
+        injection H as ? ?; subst; constructor; exact E.
+    + destruct (truth s e1) as [[|]|] eqn:E; [| discriminate | discriminate].
+      injection H as ? ?; subst; constructor; exact E.
     + destruct (call_ok (Γ p) ys) eqn:Ok; [| discriminate].
       injection H as ? ?; subst; constructor; exact Ok.
     + destruct (call_ok (Γ p) ys) eqn:Ok; [| discriminate].
       injection H as ? ?; subst; constructor; exact Ok.
-    + injection H as ? ?; subst; constructor.
-    + destruct (idx (eval s e1)) eqn:Ei; [| discriminate].
-      injection H as ? ?; subst; constructor; exact Ei.
+    + destruct (eval s e1) eqn:Ev; [| discriminate].
+      injection H as ? ?; subst; constructor; exact Ev.
+    + destruct (eval s e1) as [z|] eqn:Ez; [| discriminate].
+      destruct (idx z) as [i|] eqn:Ei; [| discriminate].
+      destruct (eval s e2) as [w|] eqn:Ew; [| discriminate].
+      injection H as ? ?; subst; econstructor; eassumption.
   - (* CS_post *) discriminate.
   - (* CS_seq_L *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
@@ -1539,29 +1614,28 @@ Proof.
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
     + injection H as ? ?; subst. apply J_Ctx_If_Then. apply IHcs; exact E.
     + destruct cs; try discriminate.
-      destruct (Z.eqb (eval s e2) 0) eqn:E2; [discriminate |].
-      injection H as ? ?; subst; constructor. apply Z.eqb_neq; exact E2.
+      destruct (truth s e2) as [[|]|] eqn:E2; [| discriminate | discriminate].
+      injection H as ? ?; subst; constructor; exact E2.
   - (* CS_if_else *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
     + injection H as ? ?; subst. apply J_Ctx_If_Else. apply IHcs; exact E.
     + destruct cs; try discriminate.
-      destruct (Z.eqb (eval s e2) 0) eqn:E2; [| discriminate].
-      injection H as ? ?; subst; constructor. apply Z.eqb_eq; exact E2.
+      destruct (truth s e2) as [[|]|] eqn:E2; [discriminate | | discriminate].
+      injection H as ? ?; subst; constructor; exact E2.
   - (* CS_loop_from *) injection H as ? ?; subst; constructor.
   - (* CS_loop_do *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
     + injection H as ? ?; subst. apply J_Ctx_Loop_Do. apply IHcs; exact E.
     + destruct cs; try discriminate. injection H as ? ?; subst; constructor.
   - (* CS_loop_until *)
-    destruct (Z.eqb (eval s e2) 0) eqn:E; injection H as ? ?; subst; constructor.
-    + apply Z.eqb_eq; exact E.
-    + apply Z.eqb_neq; exact E.
+    destruct (truth s e2) as [[|]|] eqn:E; [| | discriminate];
+      injection H as ? ?; subst; constructor; exact E.
   - (* CS_loop_loop *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
     + injection H as ? ?; subst. apply J_Ctx_Loop_Loop. apply IHcs; exact E.
     + destruct cs; try discriminate.
-      destruct (Z.eqb (eval s e1) 0) eqn:E2; [| discriminate].
-      injection H as ? ?; subst; constructor. apply Z.eqb_eq; exact E2.
+      destruct (truth s e1) as [[|]|] eqn:E2; [discriminate | | discriminate].
+      injection H as ? ?; subst; constructor; exact E2.
   - (* CS_call *)
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
     + injection H as ? ?; subst. apply J_Ctx_Call. apply IHcs; exact E.
@@ -1580,8 +1654,10 @@ Proof.
     destruct (step_fun Γ cs s) as [[c t]|] eqn:E.
     + injection H as ? ?; subst. apply J_Ctx_Local. apply IHcs; exact E.
     + destruct cs; try discriminate.
-      destruct (Z.eqb (s x) (eval s e2)) eqn:E2; [| discriminate].
-      injection H as ? ?; subst; constructor. apply Z.eqb_eq; exact E2.
+      destruct (eval s e2) as [w|] eqn:Ew; [| discriminate].
+      destruct (Z.eqb (s x) w) eqn:E2; [| discriminate].
+      apply Z.eqb_eq in E2; subst w.
+      injection H as ? ?; subst; constructor; exact Ew.
 Qed.
 
 (* Completeness: every step is computed by step_fun. *)
@@ -1592,9 +1668,9 @@ Proof.
   intros Γ cfg cfg' H; induction H; simpl in *;
     try reflexivity;
     try (rewrite IHjstep; reflexivity);
-    try (apply Z.eqb_neq in H; rewrite H; reflexivity);
-    try (apply Z.eqb_eq in H; rewrite H; reflexivity);
-    try (rewrite H; reflexivity).
+    try (rewrite H; reflexivity);
+    try (rewrite H, Z.eqb_refl; reflexivity);
+    try (rewrite H, H0, H1; reflexivity).
   all: match goal with
        | [ |- context [stmt_eq_dec ?a ?b] ] =>
            destruct (stmt_eq_dec a b) as [_ | Hne];
@@ -1625,18 +1701,19 @@ Proof. reflexivity. Qed.
    after s1), mirroring CS_loop_from / CS_loop_until. *)
 Inductive exec (Γ : penv) : stmt -> store -> store -> Prop :=
   | E_Skip : forall s, exec Γ Sskip s s
-  | E_Asn : forall x op e s,
-      exec Γ (Sass x op e) s (update s x (apply_upd op (s x) (eval s e)))
+  | E_Asn : forall x op e s v,
+      eval s e = Some v ->
+      exec Γ (Sass x op e) s (update s x (apply_upd op (s x) v))
   | E_Seq : forall a b s1 s2 s3,
       exec Γ a s1 s2 -> exec Γ b s2 s3 -> exec Γ (Sseq a b) s1 s3
   | E_IfT : forall e1 a b e2 s s',
-      eval s e1 <> 0 -> exec Γ a s s' -> eval s' e2 <> 0 ->
+      truth s e1 = Some true -> exec Γ a s s' -> truth s' e2 = Some true ->
       exec Γ (Sif e1 a b e2) s s'
   | E_IfF : forall e1 a b e2 s s',
-      eval s e1 = 0 -> exec Γ b s s' -> eval s' e2 = 0 ->
+      truth s e1 = Some false -> exec Γ b s s' -> truth s' e2 = Some false ->
       exec Γ (Sif e1 a b e2) s s'
   | E_Loop : forall e1 a b e2 s s',
-      eval s e1 <> 0 -> loop_from Γ e1 a b e2 s s' ->
+      truth s e1 = Some true -> loop_from Γ e1 a b e2 s s' ->
       exec Γ (Sloop e1 a b e2) s s'
   | E_Call : forall p ys s s',
       call_ok (Γ p) ys = true -> exec Γ (inst (Γ p) ys) s s' ->
@@ -1644,21 +1721,22 @@ Inductive exec (Γ : penv) : stmt -> store -> store -> Prop :=
   | E_Uncall : forall p ys s s',
       call_ok (Γ p) ys = true -> exec Γ (inv (inst (Γ p) ys)) s s' ->
       exec Γ (Suncall p ys) s s'
-  | E_Local : forall x e1 st e2 s s1,
-      exec Γ st (update s x (eval s e1)) s1 -> s1 x = eval s1 e2 ->
+  | E_Local : forall x e1 st e2 s w s1,
+      eval s e1 = Some w ->
+      exec Γ st (update s x w) s1 -> eval s1 e2 = Some (s1 x) ->
       exec Γ (Slocal x e1 st e2) s (update s1 x (s x))
-  | E_AAsn : forall a e1 op e2 s i,
-      idx (eval s e1) = Some i ->
+  | E_AAsn : forall a e1 op e2 s z i w,
+      eval s e1 = Some z -> idx z = Some i -> eval s e2 = Some w ->
       exec Γ (Saass a e1 op e2) s
-             (aupdate s a i (apply_upd op (aget s a i) (eval s e2)))
+             (aupdate s a i (apply_upd op (aget s a i) w))
 with loop_from (Γ : penv) : expr -> stmt -> stmt -> expr -> store -> store -> Prop :=
   | LF : forall e1 a b e2 s s1 s',
       exec Γ a s s1 -> loop_until Γ e1 a b e2 s1 s' -> loop_from Γ e1 a b e2 s s'
 with loop_until (Γ : penv) : expr -> stmt -> stmt -> expr -> store -> store -> Prop :=
   | LU_Exit : forall e1 a b e2 s,
-      eval s e2 <> 0 -> loop_until Γ e1 a b e2 s s
+      truth s e2 = Some true -> loop_until Γ e1 a b e2 s s
   | LU_Iter : forall e1 a b e2 s s2 s',
-      eval s e2 = 0 -> exec Γ b s s2 -> eval s2 e1 = 0 ->
+      truth s e2 = Some false -> exec Γ b s s2 -> truth s2 e1 = Some false ->
       loop_from Γ e1 a b e2 s2 s' -> loop_until Γ e1 a b e2 s s'.
 
 Scheme exec_mind := Induction for exec Sort Prop
@@ -1716,7 +1794,7 @@ Proof.
   intros Γ.
   apply exec_mutind; intros.
   - apply jstar_one; constructor.
-  - apply jstar_one; constructor.
+  - apply jstar_one; constructor; assumption.
   - (* Seq *)
     lift a (fun c => CS_seq_L c b) La. lift b (fun c => CS_seq_R a c) Lb.
     eapply JS_step; [apply J_Seq_Enter |].
@@ -1742,10 +1820,10 @@ Proof.
     eapply jstar_trans; [exact L1 |].
     apply jstar_one; apply J_Uncall_Exit; assumption.
   - lift st (fun c => CS_local x (s x) e1 c e2) L1.
-    eapply JS_step; [apply J_Local_Enter |].
+    eapply JS_step; [apply J_Local_Enter; eassumption |].
     eapply jstar_trans; [exact L1 |].
     apply jstar_one; apply J_Local_Exit; assumption.
-  - apply jstar_one; constructor; assumption.
+  - apply jstar_one; econstructor; eassumption.
   - (* LF *)
     lift a (fun c => CS_loop_do e1 c b e2) L1.
     eapply JS_step; [apply J_Loop_Do |].
@@ -1788,9 +1866,9 @@ Inductive cexec (Γ : penv) : cont_stmt -> store -> store -> Prop :=
   | CX_seq_R : forall a cs s s',
       cexec Γ cs s s' -> cexec Γ (CS_seq_R a cs) s s'
   | CX_if_then : forall e1 cs b e2 s s',
-      cexec Γ cs s s' -> eval s' e2 <> 0 -> cexec Γ (CS_if_then e1 cs b e2) s s'
+      cexec Γ cs s s' -> truth s' e2 = Some true -> cexec Γ (CS_if_then e1 cs b e2) s s'
   | CX_if_else : forall e1 a cs e2 s s',
-      cexec Γ cs s s' -> eval s' e2 = 0 -> cexec Γ (CS_if_else e1 a cs e2) s s'
+      cexec Γ cs s s' -> truth s' e2 = Some false -> cexec Γ (CS_if_else e1 a cs e2) s s'
   | CX_loop_from : forall e1 a b e2 s s',
       loop_from Γ e1 a b e2 s s' -> cexec Γ (CS_loop_from e1 a b e2) s s'
   | CX_loop_do : forall e1 cs b e2 s s1 s',
@@ -1799,14 +1877,14 @@ Inductive cexec (Γ : penv) : cont_stmt -> store -> store -> Prop :=
   | CX_loop_until : forall e1 a b e2 s s',
       loop_until Γ e1 a b e2 s s' -> cexec Γ (CS_loop_until e1 a b e2) s s'
   | CX_loop_loop : forall e1 a cs e2 s s2 s',
-      cexec Γ cs s s2 -> eval s2 e1 = 0 -> loop_from Γ e1 a (top cs) e2 s2 s' ->
+      cexec Γ cs s s2 -> truth s2 e1 = Some false -> loop_from Γ e1 a (top cs) e2 s2 s' ->
       cexec Γ (CS_loop_loop e1 a cs e2) s s'
   | CX_call : forall p ys cs s s',
       cexec Γ cs s s' -> cexec Γ (CS_call p ys cs) s s'
   | CX_uncall : forall p ys cs s s',
       cexec Γ cs s s' -> cexec Γ (CS_uncall p ys cs) s s'
   | CX_local : forall x v e1 cs e2 s s1,
-      cexec Γ cs s s1 -> s1 x = eval s1 e2 ->
+      cexec Γ cs s s1 -> eval s1 e2 = Some (s1 x) ->
       cexec Γ (CS_local x v e1 cs e2) s (update s1 x v).
 
 Local Hint Constructors exec loop_from loop_until cexec : core.
@@ -1943,7 +2021,7 @@ Proof.
 Qed.
 
 (* ================================================================= *)
-(* 15. Embedding sanity: running a small Janus program                *)
+(* 14b. Running programs: step counting, a bounded runner, renaming  *)
 (* ================================================================= *)
 
 Inductive jnsteps (Γ : penv) : nat -> cont_stmt * store -> cont_stmt * store -> Prop :=
@@ -1951,32 +2029,66 @@ Inductive jnsteps (Γ : penv) : nat -> cont_stmt * store -> cont_stmt * store ->
   | JN_step : forall n cfg1 cfg2 cfg3,
       jstep Γ cfg1 cfg2 -> jnsteps Γ n cfg2 cfg3 -> jnsteps Γ (S n) cfg1 cfg3.
 
-Definition zero_store : store :=
-  mkstore (Vector.const 0 10%nat) (Vector.const (Vector.const 0 asize) 4%nat).
-Definition Γ0 : penv := fun _ => mkproc List.nil Sskip.
+(* A bounded runner over the verified stepper. *)
+Fixpoint run (Γ : penv) (n : nat) (cfg : cont_stmt * store) : cont_stmt * store :=
+  match n with
+  | O => cfg
+  | S n' => match step_fun Γ (fst cfg) (snd cfg) with
+            | Some cfg' => run Γ n' cfg'
+            | None => cfg
+            end
+  end.
 
-(*  X0 += 1;  if X0 then X1 ^= 3 else skip fi X0  *)
-Definition ex_prog : stmt :=
-  Sseq (Sass X0 Uadd (Econst 1))
-       (Sif (Evar X0) (Sass X1 Uxor (Econst 3)) Sskip (Evar X0)).
-
-Definition ex_final : store := update (update zero_store X0 1) X1 3.
-
-Example j_example_run :
-  jnsteps Γ0 7%nat (CS_pre ex_prog, zero_store) (CS_post ex_prog, ex_final).
+Lemma run_jstar : forall Γ n cfg, jstar Γ cfg (run Γ n cfg).
 Proof.
-  unfold ex_prog.
-  eapply JN_step. { apply J_Seq_Enter. }
-  eapply JN_step. { apply J_Ctx_Seq_L. apply J_Asn. }
-  eapply JN_step. { apply J_Seq_Mid. }
-  eapply JN_step. { apply J_Ctx_Seq_R. apply J_If_True. cbv; discriminate. }
-  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Ctx_If_Then. apply J_Asn. }
-  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Fi_True. cbv; discriminate. }
-  eapply JN_step. { apply J_Seq_Exit. }
-  apply JN_refl.
+  intros Γ n; induction n as [|n IH]; intros [c s]; simpl.
+  - apply JS_refl.
+  - destruct (step_fun Γ c s) as [[c' s']|] eqn:E.
+    + eapply JS_step; [apply step_fun_sound; exact E | apply IH].
+    + apply JS_refl.
 Qed.
 
-(* ---- 15a. Parameters: conservative extension and worked examples ---- *)
+(* No value from the stepper means no step at all. *)
+Lemma stuck_of_step_fun_none :
+  forall Γ cs s, step_fun Γ cs s = None -> forall cfg', ~ jstep Γ (cs, s) cfg'.
+Proof.
+  intros Γ cs s H [cs' s'] Hs.
+  apply step_fun_correct in Hs. congruence.
+Qed.
+
+(* The executable backward step: one forward step of the inverted
+   position, read back through the inverter (as bstep_fun in proofs.v). *)
+Definition bstep_fun (Γ : penv) (cs : cont_stmt) (s : store) : option (cont_stmt * store) :=
+  match step_fun Γ (cs_inv cs) s with
+  | Some (d, s') => Some (cs_inv d, s')
+  | None => None
+  end.
+
+Theorem bstep_fun_correct :
+  forall Γ cs s cs' s', wf_penv Γ -> wf_cs cs ->
+    (bstep_fun Γ cs s = Some (cs', s') <-> bstep Γ (cs, s) (cs', s')).
+Proof.
+  intros Γ cs s cs' s' HΓ Hwf; unfold bstep_fun; split.
+  - intros H.
+    destruct (step_fun Γ (cs_inv cs) s) as [[d s0]|] eqn:E; [| discriminate].
+    injection H as <- <-. apply step_fun_correct in E.
+    apply inv_step_reverses in E; [| apply wf_cs_cs_inv; exact Hwf].
+    rewrite cs_inv_involutive in E. exact E.
+  - intros H. unfold bstep in H.
+    assert (Hwf' : wf_cs cs') by (eapply wf_cs_step_reflected; eassumption).
+    apply inv_step_reverses in H; [| exact Hwf'].
+    apply step_fun_correct in H. rewrite H, cs_inv_involutive. reflexivity.
+Qed.
+
+(* A bounded backward runner. *)
+Fixpoint brun (Γ : penv) (n : nat) (cfg : cont_stmt * store) : cont_stmt * store :=
+  match n with
+  | O => cfg
+  | S n' => match bstep_fun Γ (fst cfg) (snd cfg) with
+            | Some cfg' => brun Γ n' cfg'
+            | None => cfg
+            end
+  end.
 
 Lemma rename_expr_id : forall e, rename_expr (fun v => v) e = e.
 Proof. induction e; simpl; congruence. Qed.
@@ -2005,19 +2117,65 @@ Proof. intro b; unfold inst; simpl; apply rename_id. Qed.
 Lemma call_ok_no_params : forall b, call_ok (mkproc List.nil b) List.nil = true.
 Proof. intro b; unfold call_ok; simpl; apply inj_onb_id. Qed.
 
-(* A bounded runner over the verified stepper. *)
-Fixpoint run (Γ : penv) (n : nat) (cfg : cont_stmt * store) : cont_stmt * store :=
-  match n with
-  | O => cfg
-  | S n' => match step_fun Γ (fst cfg) (snd cfg) with
-            | Some cfg' => run Γ n' cfg'
-            | None => cfg
-            end
-  end.
+End Janus.
+
+(* ================================================================= *)
+(* 15. Embedding sanity: running a small Janus program                *)
+(* ================================================================= *)
+
+(* The examples fix ten variables X0..X9, four arrays A0..A3 of length 8. *)
+Local Open Scope Z_scope.
+
+
+Definition X0 : Fin.t 10 := Fin.F1.
+Definition X1 : Fin.t 10 := Fin.FS Fin.F1.
+Definition X2 : Fin.t 10 := Fin.FS (Fin.FS Fin.F1).
+Definition X3 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
+Definition X4 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))).
+Definition X5 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))).
+Definition X6 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))).
+Definition X7 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))).
+Definition X8 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1))))))).
+Definition X9 : Fin.t 10 := Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS (Fin.FS Fin.F1)))))))).
+
+Definition A0 : Fin.t 4 := Fin.F1.
+Definition A1 : Fin.t 4 := Fin.FS Fin.F1.
+Definition A2 : Fin.t 4 := Fin.FS (Fin.FS Fin.F1).
+Definition A3 : Fin.t 4 := Fin.FS (Fin.FS (Fin.FS Fin.F1)).
+
+
+Definition zero_store : @store 10 4 8 :=
+  mkstore (Vector.const 0 10%nat) (Vector.const (Vector.const 0 8%nat) 4%nat).
+Definition Γ0 : @penv 10 4 := fun _ => mkproc List.nil Sskip.
+
+(*  X0 += 1;  if X0 then X1 ^= 3 else skip fi X0  *)
+Definition ex_prog : @stmt 10 4 :=
+  Sseq (Sass X0 Uadd (Econst 1))
+       (Sif (Evar X0) (Sass X1 Uxor (Econst 3)) Sskip (Evar X0)).
+
+Definition ex_final : @store 10 4 8 := update (update zero_store X0 1) X1 3.
+
+Example j_example_run :
+  jnsteps Γ0 7%nat (CS_pre ex_prog, zero_store) (CS_post ex_prog, ex_final).
+Proof.
+  unfold ex_prog.
+  eapply JN_step. { apply J_Seq_Enter. }
+  eapply JN_step. { apply J_Ctx_Seq_L. eapply J_Asn. reflexivity. }
+  eapply JN_step. { apply J_Seq_Mid. }
+  eapply JN_step. { apply J_Ctx_Seq_R. apply J_If_True. reflexivity. }
+  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Ctx_If_Then. eapply J_Asn. reflexivity. }
+  eapply JN_step. { apply J_Ctx_Seq_R. apply J_Fi_True. reflexivity. }
+  eapply JN_step. { apply J_Seq_Exit. }
+  apply JN_refl.
+Qed.
+
+(* ---- 15a. Parameters: conservative extension and worked examples ---- *)
+
+
 
 (* procedure 0 (a, b):  a += b      with formals a = X0, b = X1
    procedure 1 (a)   :  a ^= X1     X1 is a global *)
-Definition Γ1 : penv := fun p =>
+Definition Γ1 : @penv 10 4 := fun p =>
   match p with
   | O => mkproc (X0 :: X1 :: List.nil) (Sass X0 Uadd (Evar X1))
   | _ => mkproc (X0 :: List.nil) (Sass X0 Uxor (Evar X1))
@@ -2029,7 +2187,7 @@ Proof.
 Qed.
 
 (*  X2 += 5;  call 0 (X3, X2)  : X3 is updated through the formal a. *)
-Definition ex_call : stmt :=
+Definition ex_call : @stmt 10 4 :=
   Sseq (Sass X2 Uadd (Econst 5)) (Scall 0%nat (X3 :: X2 :: List.nil)).
 
 Example j_call_by_reference :
@@ -2072,13 +2230,13 @@ Qed.
 (*  local X0 = X1 + 1;  X2 += X0;  delocal X0 = X1 + 1
     run from X0 = 7 (the outer X0), X1 = 3: the body sees X0 = 4, adds it
     to X2, and the outer X0 = 7 is restored at delocal. *)
-Definition ex_local : stmt :=
+Definition ex_local : @stmt 10 4 :=
   Slocal X0 (Ebin Bplus (Evar X1) (Econst 1))
          (Sass X2 Uadd (Evar X0))
          (Ebin Bplus (Evar X1) (Econst 1)).
 
-Definition ex_local_pre : store := update (update zero_store X0 7) X1 3.
-Definition ex_local_post : store := update ex_local_pre X2 4.
+Definition ex_local_pre : @store 10 4 8 := update (update zero_store X0 7) X1 3.
+Definition ex_local_post : @store 10 4 8 := update ex_local_pre X2 4.
 
 Example j_local_shadows :
   run Γ0 10%nat (CS_pre ex_local, ex_local_pre) = (CS_post ex_local, ex_local_post).
@@ -2092,7 +2250,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (*  local X0 = 1;  X0 += 1;  delocal X0 = 1 : the delocal assertion fails
     and the run is stuck inside the block. *)
-Definition ex_bad_delocal : stmt :=
+Definition ex_bad_delocal : @stmt 10 4 :=
   Slocal X0 (Econst 1) (Sass X0 Uadd (Econst 1)) (Econst 1).
 
 Example j_delocal_mismatch_stuck :
@@ -2117,8 +2275,8 @@ Example asn_bwd_needs_nf :
   jstep Γ0 c1 c /\ jstep Γ0 c2 c /\ c1 <> c2.
 Proof.
   simpl. split; [| split].
-  - apply J_Asn'. vm_compute. reflexivity.
-  - apply J_Asn'. vm_compute. reflexivity.
+  - eapply J_Asn'; [reflexivity | vm_compute; reflexivity].
+  - eapply J_Asn'; [reflexivity | vm_compute; reflexivity].
   - intro H. inversion H.
 Qed.
 
@@ -2140,11 +2298,11 @@ Qed.
 (* ---- 15c. Arrays: worked examples ---- *)
 
 (* Set a cell by an integer index (examples only). *)
-Definition aset (s : store) (a : arr) (z : Z) (v : Z) : store :=
+Definition aset (s : @store 10 4 8) (a : Fin.t 4) (z : Z) (v : Z) : @store 10 4 8 :=
   match idx z with Some i => aupdate s a i v | None => s end.
 
 (*  X0 += 3;  A0[X0] += 5;  A0[X0 + 1] ^= A0[X0]  *)
-Definition ex_arr : stmt :=
+Definition ex_arr : @stmt 10 4 :=
   Sseq (Sass X0 Uadd (Econst 3))
        (Sseq (Saass A0 (Evar X0) Uadd (Econst 5))
              (Saass A0 (Ebin Bplus (Evar X0) (Econst 1)) Uxor (Eidx A0 (Evar X0)))).
@@ -2183,14 +2341,6 @@ Qed.
 
 (* ---- 15d. Big-step examples, via the verified stepper ---- *)
 
-Lemma run_jstar : forall Γ n cfg, jstar Γ cfg (run Γ n cfg).
-Proof.
-  intros Γ n; induction n as [|n IH]; intros [c s]; simpl.
-  - apply JS_refl.
-  - destruct (step_fun Γ c s) as [[c' s']|] eqn:E.
-    + eapply JS_step; [apply step_fun_sound; exact E | apply IH].
-    + apply JS_refl.
-Qed.
 
 (* call-by-reference, as a big-step judgement *)
 Example exec_call_by_reference :
@@ -2205,6 +2355,128 @@ Example exec_call_inverted :
 Proof.
   apply exec_inv; [exact wf_penv_Γ1 | | exact exec_call_by_reference].
   repeat constructor; intro H; discriminate H.
+Qed.
+
+(* ---- 15e. Partial evaluation: / and %, <= and >=, and errors ---- *)
+
+
+(*  X0 += 7 / 2;  X1 += -7 / 2;  X2 += 7 % -2;  X3 += (3 <= 3) + (2 >= 3)
+    / and % round towards minus infinity (Z.div, Z.modulo), as Haskell's
+    div and mod in the jana interpreter: X0 = 3, X1 = -4, X2 = -1, X3 = 1. *)
+Definition ex_div : @stmt 10 4 :=
+  Sseq (Sass X0 Uadd (Ebin Bdiv (Econst 7) (Econst 2)))
+  (Sseq (Sass X1 Uadd (Ebin Bdiv (Econst (-7)) (Econst 2)))
+  (Sseq (Sass X2 Uadd (Ebin Bmod (Econst 7) (Econst (-2))))
+        (Sass X3 Uadd (Ebin Bplus (Ebin Ble (Econst 3) (Econst 3))
+                                  (Ebin Bge (Econst 2) (Econst 3)))))).
+
+Example j_div_run :
+  run Γ0 30%nat (CS_pre ex_div, zero_store)
+  = (CS_post ex_div,
+     update (update (update (update zero_store X0 3) X1 (-4)) X2 (-1)) X3 1).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Division and remainder by zero have no value: the assignment is stuck. *)
+Example j_div_by_zero_stuck :
+  (forall cfg', ~ jstep Γ0 (CS_pre (Sass X0 Uadd (Ebin Bdiv (Econst 1) (Evar X1))),
+                            zero_store) cfg')
+  /\ (forall cfg', ~ jstep Γ0 (CS_pre (Sass X0 Uadd (Ebin Bmod (Econst 1) (Evar X1))),
+                               zero_store) cfg').
+Proof. split; apply stuck_of_step_fun_none; vm_compute; reflexivity. Qed.
+
+(* An out-of-bounds read has no value (asize = 8): stuck, where the total
+   evaluation of the previous version of this file read 0. *)
+Example j_oob_read_stuck :
+  (forall cfg', ~ jstep Γ0 (CS_pre (Sass X0 Uadd (Eidx A0 (Econst 8))), zero_store) cfg')
+  /\ (forall cfg', ~ jstep Γ0 (CS_pre (Sass X0 Uadd (Eidx A0 (Econst (-1)))),
+                               zero_store) cfg').
+Proof. split; apply stuck_of_step_fun_none; vm_compute; reflexivity. Qed.
+
+(* Evaluation is strict: 0 && 1/0 has no value, so the guard is stuck
+   (jana short-circuits && and would take the else branch). *)
+Example j_strict_and_stuck :
+  forall cfg',
+    ~ jstep Γ0 (CS_pre (Sif (Ebin Bland (Econst 0) (Ebin Bdiv (Econst 1) (Econst 0)))
+                            Sskip Sskip (Econst 0)), zero_store) cfg'.
+Proof. apply stuck_of_step_fun_none; vm_compute; reflexivity. Qed.
+
+(* A guard without a value blocks the loop at the until-point, and an
+   assertion without a value blocks delocal. *)
+Example j_until_error_stuck :
+  forall cfg',
+    ~ jstep Γ0 (CS_loop_until (Econst 1) Sskip Sskip (Ebin Bmod (Econst 1) (Econst 0)),
+                zero_store) cfg'.
+Proof. apply stuck_of_step_fun_none; vm_compute; reflexivity. Qed.
+
+Example j_delocal_error_stuck :
+  forall cfg',
+    ~ jstep Γ0 (CS_local X0 0 (Econst 0) (CS_post Sskip) (Ebin Bdiv (Econst 0) (Evar X1)),
+                zero_store) cfg'.
+Proof. apply stuck_of_step_fun_none; vm_compute; reflexivity. Qed.
+
+(*  X1 += X0 / 3;  X2 += X0 % 3   from X0 = 17: X1 = 5, X2 = 2, and the
+    inverse program, run forwards, undoes it.  Partiality does not reach
+    the inverse: x op= e needs x not in e, so e has the same value before
+    and after the step (eval_update_invariant). *)
+Definition ex_divmod : @stmt 10 4 :=
+  Sseq (Sass X1 Uadd (Ebin Bdiv (Evar X0) (Econst 3)))
+       (Sass X2 Uadd (Ebin Bmod (Evar X0) (Econst 3))).
+
+Definition ex_divmod_pre : @store 10 4 8 := update zero_store X0 17.
+Definition ex_divmod_post : @store 10 4 8 := update (update ex_divmod_pre X1 5) X2 2.
+
+Example j_divmod_run :
+  run Γ0 10%nat (CS_pre ex_divmod, ex_divmod_pre) = (CS_post ex_divmod, ex_divmod_post).
+Proof. vm_compute. reflexivity. Qed.
+
+Example j_divmod_inverse :
+  run Γ0 10%nat (CS_pre (inv ex_divmod), ex_divmod_post)
+  = (CS_post (inv ex_divmod), ex_divmod_pre).
+Proof. vm_compute. reflexivity. Qed.
+
+(* The backward runner undoes the whole run of ex_divmod, from its exit
+   back to its entry, without the inverse program. *)
+Example j_divmod_brun :
+  brun Γ0 10%nat (CS_post ex_divmod, ex_divmod_post) = (CS_pre ex_divmod, ex_divmod_pre).
+Proof. vm_compute. reflexivity. Qed.
+
+(* ---- 15f. Another store size ---- *)
+
+(* The results of sections 1-14b hold for every number of variables and
+   arrays and every array length.  Three variables Y0..Y2 and one array B0
+   of length 2: *)
+Definition Y0 : Fin.t 3 := Fin.F1.
+Definition Y1 : Fin.t 3 := Fin.FS Fin.F1.
+Definition B0 : Fin.t 1 := Fin.F1.
+
+Definition small_zero : @store 3 1 2 :=
+  mkstore (Vector.const 0 3%nat) (Vector.const (Vector.const 0 2%nat) 1%nat).
+Definition Γs : @penv 3 1 := fun _ => mkproc List.nil Sskip.
+
+(*  Y0 += 1;  B0[Y0] += 5;  Y1 += B0[Y0]  *)
+Definition ex_small : @stmt 3 1 :=
+  Sseq (Sass Y0 Uadd (Econst 1))
+       (Sseq (Saass B0 (Evar Y0) Uadd (Econst 5))
+             (Sass Y1 Uadd (Eidx B0 (Evar Y0)))).
+
+Definition ex_small_post : @store 3 1 2 :=
+  update (update (aupdate small_zero B0 (Fin.FS Fin.F1) 5) Y0 1) Y1 5.
+
+Example j_small_run :
+  run Γs 20%nat (CS_pre ex_small, small_zero) = (CS_post ex_small, ex_small_post).
+Proof. vm_compute. reflexivity. Qed.
+
+Example j_small_inverse :
+  run Γs 20%nat (CS_pre (inv ex_small), ex_small_post) = (CS_post (inv ex_small), small_zero).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Index 2 is out of bounds at length 2 (it is in bounds at length 8). *)
+Example j_small_oob_stuck :
+  (forall cfg', ~ jstep Γs (CS_pre (Saass B0 (Econst 2) Uadd (Econst 1)), small_zero) cfg')
+  /\ step_fun Γ0 (CS_pre (Saass A0 (Econst 2) Uadd (Econst 1))) zero_store <> None.
+Proof.
+  split; [apply stuck_of_step_fun_none; vm_compute; reflexivity |].
+  vm_compute. discriminate.
 Qed.
 
 (* ================================================================= *)
@@ -2312,3 +2584,17 @@ Print Assumptions run_jstar.
 Print Assumptions exec_call_by_reference.
 Print Assumptions exec_call_inverted.
 Print Assumptions asn_bwd_needs_nf.
+Print Assumptions stuck_of_step_fun_none.
+Print Assumptions j_div_run.
+Print Assumptions j_div_by_zero_stuck.
+Print Assumptions j_oob_read_stuck.
+Print Assumptions j_strict_and_stuck.
+Print Assumptions j_until_error_stuck.
+Print Assumptions j_delocal_error_stuck.
+Print Assumptions j_divmod_run.
+Print Assumptions j_divmod_inverse.
+Print Assumptions j_small_run.
+Print Assumptions j_small_inverse.
+Print Assumptions j_small_oob_stuck.
+Print Assumptions bstep_fun_correct.
+Print Assumptions j_divmod_brun.

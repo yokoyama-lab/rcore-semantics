@@ -1,6 +1,6 @@
 ROCQ ?= rocq
 
-.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants clean
+.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants janus-lv janus-lv-check janus-lv-audit janus-extract janus-extract-test clean
 
 all: proofs.vo
 
@@ -62,8 +62,31 @@ janus-audit:
 janus-mutants:
 	ROCQ=$(ROCQ) python3 tools/janus-mutants.py
 
+# The program-counter semantics of Lanese and Vidal (RC 2026) and its
+# relation to janus/janus.v, with three errata of the published rules.
+janus-lv: janus/lv.vo
+
+janus/lv.vo: janus/lv.v janus/janus.vo
+	$(ROCQ) c -Q . RCore janus/lv.v
+
+janus-lv-check: janus/lv.vo
+	$(ROCQ) check -Q . RCore RCore.janus.lv
+
+janus-lv-audit: janus/janus.vo
+	SRC=janus/lv.v ROCQ=$(ROCQ) ./tools/audit.sh
+
+# The Janus interpreter extracted from janus.v, run forwards and backwards
+# on the worked examples (janus/test_janus.ml).
+janus-extract: janus/janus.vo janus/extraction.v
+	$(ROCQ) c -Q . RCore janus/extraction.v
+
+janus-extract-test: janus-extract janus/test_janus.ml
+	ocamlc -w -a -I janus janus/janus_interp.mli janus/janus_interp.ml janus/test_janus.ml -o janus/test_janus
+	./janus/test_janus
+
 clean:
 	rm -f *.vo *.vos *.vok *.glob .*.aux .lia.cache
 	rm -f janus/*.vo janus/*.vos janus/*.vok janus/*.glob janus/.*.aux
+	rm -f janus/janus_interp.ml janus/janus_interp.mli janus/*.cmi janus/*.cmo janus/test_janus
 	rm -f rcore_interp.ml rcore_interp.mli *.cmi *.cmo test_interp
 	rm -f witness_driver difftest/*.cmi difftest/*.cmo
