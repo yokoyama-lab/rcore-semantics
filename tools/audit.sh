@@ -33,9 +33,11 @@ echo "== 2. audit block covers every top-level result =="
 declared=$(mktemp); audited=$(mktemp); missing=$(mktemp)
 trap 'rm -f "$declared" "$audited" "$missing"' EXIT
 
-grep -oE '^(Theorem|Lemma|Corollary|Example)[[:space:]]+[A-Za-z_][A-Za-z0-9_'"'"']*' "$SRC" \
+# Names may contain non-ASCII letters (wf_penv_Γ1): take everything up to
+# a blank, a colon, a parenthesis or a full stop, not just [A-Za-z0-9_'].
+grep -oE '^(Theorem|Lemma|Corollary|Example)[[:space:]]+[^[:space:]:(.]+' "$SRC" \
   | awk '{print $2}' | sort -u > "$declared"
-grep -oE '^Print Assumptions[[:space:]]+[A-Za-z_][A-Za-z0-9_'"'"']*' "$SRC" \
+grep -oE '^Print Assumptions[[:space:]]+[^[:space:]:(.]+' "$SRC" \
   | awk '{print $3}' | sort -u > "$audited"
 comm -23 "$declared" "$audited" > "$missing"
 

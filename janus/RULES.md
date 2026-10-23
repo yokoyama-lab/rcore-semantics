@@ -4,7 +4,7 @@
 > Janus の `from e1 do s1 loop s2 until e2` では二つのガードが s1 を挟んで別の地点にあるため、R-CORE の `CC_mid_loop` を from 地点と until 地点に分割する。
 > 各規則の前向き・後向き決定性の根拠（ソース／ターゲットのパタンとガードの排他性）と、`proofs.v` の定理との対応を表にする。
 
-Status (2026-10-19, partial expression evaluation; arbitrary store size; backward stepper): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 112 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
+Status (2026-10-24, refined `call_ok`; R-CORE embedding in `janus/embed.v`): every result named below is proved in `janus/janus.v` (Rocq 9.1.1, 129 audited results, no `Admitted`, `make janus-audit` passes: all `Closed under the global context`).
 
 ---
 
@@ -47,14 +47,32 @@ variable to itself (variables that are not formals are globals). With one global
 locals, running the renamed body *is* call-by-reference. All four call/uncall rules carry the
 decidable side condition
 
-    call_ok (Γ p) ys  :=  |xs| = |ys|  ∧  nodup xs  ∧  nodup ys  ∧  ren xs ys injective on vars(body)
+    call_ok (Γ p) ys  :=  |xs| = |ys|  ∧  nodup xs  ∧  nodup ys
+                          ∧  ren xs ys injective on fv(body)
+                          ∧  nocap (ren xs ys) body
 
-which is Janus's no-aliasing rule: two actuals may not coincide, and an actual may not coincide with
-a global the body uses. An aliasing call is stuck (`j_alias_actuals_stuck`,
-`j_alias_global_stuck`). The side condition is what keeps well-formedness invariant
-(`wf_inst`, via `wf_stmt_rename`); without it a well-formed environment can instantiate `X1 ^= X1`
-(`alias_breaks_wf`), and removing it from `J_Call_Enter` makes `wf_cs_step_preserved_cfg` fail
-(mutation-checked 2026-09-24; reproducible with `make janus-mutants`). A parameterless procedure is the case `xs = ys = []`
+`fv` is `vars` without the variable a `local x` block binds, inside that block, and
+`nocap ρ st` asks, at every `local x = e1; a; delocal x = e2` of `st`, that `ρ` be injective on
+`x` together with the block's free variables. The third clause is Janus's no-aliasing rule: two
+actuals may not coincide, and an actual may not coincide with a global the body uses. An aliasing
+call is stuck (`j_alias_actuals_stuck`, `j_alias_global_stuck`). A name bound by a local block of
+the body is not a global, so an actual may share it (`ex_local_actual`, `j_local_actual_run`:
+`proc 0(a) = a += 1; local X5 = 0; X5 += 2; delocal X5 = 2` called as `call 0(X5)`). The fourth
+clause is there because `rename` renames the binder too: if the formal bound to `X5` is used inside
+the block, the renamed block would read its own `X5` where the body means the caller's
+(`j_local_capture_stuck`, `capture_breaks_wf`). Until 2026-10-23 the third clause read "injective
+on vars(body)" (`call_ok_vars`), which counted local names as globals; `call_ok_vars_call_ok`
+shows the present condition accepts every call that one did. The side condition is what keeps
+well-formedness invariant (`wf_inst`, via `wf_stmt_rename_fv`); without it a well-formed
+environment can instantiate `X1 ^= X1` (`alias_breaks_wf`), and removing it from `J_Call_Enter`
+makes `wf_cs_step_preserved_cfg` fail; removing only `nocap` makes `wf_inst` fail
+(mutation-checked 2026-09-24 and 2026-10-24; reproducible with `make janus-mutants`).
+What remains conservative: a call whose actual is the name of a local block in which the
+corresponding formal is used is rejected, although Janus would give the local a fresh location.
+Accepting it needs a capture-avoiding instantiation, which with one global store means renaming
+the block to a variable that nothing inside the block can reach, including procedures called from
+it (a local block shadows a global of the same name for its whole dynamic extent, calls included:
+`j_local_dynamic_extent`). A parameterless procedure is the case `xs = ys = []`
 (`inst_no_params`, `call_ok_no_params`), so the previous parameterless core is a special case.
 
 **Local blocks.** `local x = e1; s; delocal x = e2` shadows `x` inside `s`. Entering sets
@@ -261,8 +279,13 @@ So one R-CORE step `S_LoopEnter` is simulated by `J_Loop_Enter` followed by thos
 and one `S_LoopIter2` by `J_Loop_Iter2` followed by them; `S_LoopExit` / `S_LoopIter1` map to
 `J_Loop_Exit` / `J_Loop_Iter1` one-to-one; the sequence and congruence rules map one-to-one.
 The value domains differ (binary trees over `nil` with the partial `⊙`, versus `Z` with total
-updates), so the embedding as a **formal** theorem needs a value translation and is deferred to
-Sect. 7; the remark here is about control only.
+updates). The formal statement (`janus/embed.v`, 2026-10-24) therefore goes through the data layer
+rather than a value translation: `gstep act test` is the part of `jstep` for skip, `x op= e`,
+sequencing and loops with the assignment premise and the guard value as parameters. With Janus's
+data it is `jstep` on that fragment (`jstep_gstep_iff`); with R-CORE's data (`eval_expr`, `⊙`,
+"not nil") and `CC_mid_loop ↦ CS_loop_until` it is a stuttering bisimulation of `exec_ss`
+(`rcore_sim`, `adm_progress`, `adm_step`), and runs between translated configurations are exactly
+R-CORE runs (`rcore_embed_runs`).
 
 ---
 
@@ -347,7 +370,10 @@ All three are decidable: `nf_expr_dec`, `wf_stmt_dec`, `wf_cs_dec` (as `nf_expr_
 | `update_cancel` | `update (update s x v) x (s x) = s` — restoring the old value at `x` undoes an update (used in the `J_Asn` case of `inv_step_reverses`) | — |
 | `apply_upd_inv` | `apply_upd (inv_upd op) (apply_upd op d v) v = d` — the inverted operator undoes the update; with `inv_upd_involutive` this is why `inv (Sass x op e)` reverses `J_Asn` | — |
 | `j_example_run` (Example) | `jnsteps Γ0 7 (CS_pre ex_prog, zero_store) (CS_post ex_prog, ex_final)` — a 7-step run of `ex_prog = X0 += 1; if X0 then X1 ^= 3 else skip fi X0` from the zero store to `X0 = 1, X1 = 3` (`J_Seq_Enter`; `J_Asn` under `J_Ctx_Seq_L`; `J_Seq_Mid`; `J_If_True` under `J_Ctx_Seq_R`; `J_Asn` under `J_Ctx_Seq_R`/`J_Ctx_If_Then`; `J_Fi_True` under `J_Ctx_Seq_R`; `J_Seq_Exit`) | — |
-| `wf_stmt_rename`, `wf_inst` | a renaming injective on `vars st` preserves `wf_stmt`; hence `wf_penv Γ -> call_ok (Γ p) ys = true -> wf_stmt (inst (Γ p) ys)` | — (R-CORE has no procedures) |
+| `wf_stmt_rename`, `wf_stmt_rename_fv`, `wf_inst` | a renaming injective on `vars st` preserves `wf_stmt`, and so does one injective on `fv st` without capture (`nocap`); hence `wf_penv Γ -> call_ok (Γ p) ys = true -> wf_stmt (inst (Γ p) ys)` | — (R-CORE has no procedures) |
+| `call_ok_vars_call_ok`, `fv_incl_vars`, `nocap_of_inj_vars` | the refined `call_ok` accepts every call the previous condition `call_ok_vars` accepted | — |
+| `ex_local_actual`, `j_local_actual_run`, `j_local_capture_stuck`, `capture_breaks_wf`, `j_local_noncapture_run` (Examples) | an actual named like a local of the body: accepted and runs as call-by-reference when the block does not capture; stuck (and the renamed body ill-formed) when it would | — |
+| `j_local_dynamic_extent` (Example) | a local block shadows the global of its name for its whole dynamic extent, calls included: a procedure reading the global `X0`, called inside `local X0 = 5 … delocal X0 = 5`, reads 5 | — |
 | `inst_no_params`, `call_ok_no_params` | formals `[]`, actuals `[]`: the body runs unchanged and the call is accepted (conservative extension) | — |
 | `j_call_by_reference`, `j_uncall_undoes_call` (Examples) | `X2 += 5; call 0(X3, X2)` with `proc 0(a, b) = a += b` sets `X3 = 5`; `uncall 0(X3, X2)` restores `X3 = 0` (computed with `run` over `step_fun`) | — |
 | `j_alias_actuals_stuck`, `j_alias_global_stuck`, `alias_breaks_wf` (Examples) | `call 0(X2, X2)` and `call 1(X1)` (with `proc 1(a) = a ^= X1`) are stuck; the latter would instantiate the ill-formed `X1 ^= X1` | — |
@@ -373,7 +399,7 @@ Why `wf_penv Γ` appears where `proofs.v` had nothing: `J_Call_Enter` and `J_Unc
 instantiated bodies to be well-formed, and `J_Call_Exit` / `J_Uncall_Exit` take them out again, so
 reflection needs the same. `wf_penv Γ` (every body well-formed) gives this through `wf_inst`,
 which needs `call_ok`: renaming preserves `x ∉ e` only when it is injective on the body's
-variables (`wf_stmt_rename`). Everything else is structural, as before; `jstep_deterministic`,
+free variables and captures nothing (`wf_stmt_rename_fv`). Everything else is structural, as before; `jstep_deterministic`,
 `jstep_bwd_deterministic` and `inv_step_reverses` needed only the call-rule premises threaded
 through (`J_Uncall_*` are stated with `inv (inst …)`, so `rename_inv` is not used there; it is
 proved for the record).
@@ -408,10 +434,12 @@ Independent of the language extensions:
    the backward runner `brun`, and `janus/extraction.v` with the OCaml test `janus/test_janus.ml`
    (`make janus-extract-test`): the extracted interpreter runs every worked example forwards to
    its exit and backwards to its entry.
-6. **The R-CORE embedding as a formal statement** (Sect. 4): a translation of `cmd` into `stmt`
-   and of `cont_cmd` into `cont_stmt` (with `CC_mid_loop ↦ CS_loop_from` or `CS_loop_until`
-   chosen by phase), plus a value translation, such that every `exec_ss` step is simulated by
-   one `jstep` step followed by 0 or 3 administrative steps.
+6. ~~**The R-CORE embedding as a formal statement**~~ — **done 2026-10-24** in `janus/embed.v`
+   (Sect. 4, last paragraph), through the data layer instead of a value translation: no integer
+   encoding of trees makes `hd`/`tl` single Janus expressions under the usual pairings, so a
+   step-for-step simulation through a value translation is not available. `CC_mid_loop` maps to
+   the until-point; `S_LoopEnter` and `S_LoopIter2` take one step plus the three administrative
+   ones, every other rule one step.
 7. **A CFG / fss-style layer for Janus**, so that Lanese–Vidal's static Lemma 2
    (`flow⁻¹(s) = flow(I[[s]])`) can be stated on our side and compared rule by rule with
    `inv_step_reverses` (`LANESE_VIDAL.md` §3); the comparison needs the paper's rule figures

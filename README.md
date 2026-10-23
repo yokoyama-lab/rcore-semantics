@@ -285,7 +285,7 @@ technique scales to Janus; for this fragment the answer is yes: the 31-rule
 relation `jstep Γ` is deterministic in both directions under
 well-formedness, and the syntactic inverter reverses every step. The file
 is self-contained (it does not import `proofs.v`), axiom-free, and audited
-by the same script (110 results), for stores of every size.
+by the same script (129 results), for stores of every size.
 
 Prior small-step work on the same language shape is in the Rocq
 development of [`yokoyama-lab/PyJanus`](https://github.com/yokoyama-lab/PyJanus)
@@ -309,13 +309,16 @@ locals. See [`janus/LANESE_VIDAL.md`](janus/LANESE_VIDAL.md) §4a–§4b.
 | The transition relation is executable | `step_fun_correct` |
 | The big-step semantics is exactly the entry-to-exit runs of `jstep` | `exec_iff_jstar` |
 | Big-step determinism and inverter correctness, derived from the small-step theorems | `exec_deterministic`, `exec_inv_iff` |
+| Call-by-reference side condition: no aliasing on the free variables, no capture by a local block; accepts every call the earlier condition did | `call_ok`, `wf_inst`, `call_ok_vars_call_ok` |
+| R-CORE is the instance of these rules on R-CORE's data, up to three administrative steps per loop entry (`janus/embed.v`) | `jstep_gstep_iff`, `rcore_embed_runs` |
 
 The rule table with the per-rule injectivity argument is
 [`janus/RULES.md`](janus/RULES.md); the comparison with the PC-based
 semantics of Lanese and Vidal is
 [`janus/LANESE_VIDAL.md`](janus/LANESE_VIDAL.md); build and resume notes
 are in [`janus/README.md`](janus/README.md). Build with `make janus`,
-`make janus-check`, `make janus-audit` (kept out of `make all`).
+`make janus-check`, `make janus-audit`, and `make janus-embed` for the
+embedding (all kept out of `make all`).
 
 ## Build
 
@@ -342,6 +345,7 @@ make extract-test   # build and RUN the extracted interpreter
 make janus          # build the Janus extension (janus/janus.v)
 make janus-check    # kernel re-validation of the Janus extension
 make janus-audit    # axiom audit of the Janus extension
+make janus-embed    # R-CORE as an instance of the Janus rules (janus/embed.v)
 make clean
 ```
 

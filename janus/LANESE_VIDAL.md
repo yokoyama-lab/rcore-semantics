@@ -300,10 +300,24 @@ conference proceedings were not searched.
 
 Their figures were read from the proceedings PDF (LNCS Figs. 8, 9, 11, 12, 14, 15) and the
 arXiv v2 PDF (Figs. 9, 10, 12, 13, 16, 17); the rules are identical in the two versions.
-`janus/lv.v` defines their configurations ⟨σ, ℓ, ℓ′, π⟩ and both rule sets over the fragment
-shared with `janus.v` (no locals, no parameters). A label is the position of its block — root
-(main, procedure q, or q⁻¹) and path — so labels are unique and `block`, `ctx`, `entry`, `exit`,
-`flow` are functions of the syntax; a stack element loop1(ℓ1, s1, ℓ2, s2) keeps its two labels.
+`janus/lv.v` defines their configurations ⟨σ, ℓ, ℓ′, π⟩ and both rule sets. A label is the
+position of its block — root (main, procedure q, or q⁻¹) and path — so labels are unique and
+`block`, `ctx`, `entry`, `exit`, `flow` are functions of the syntax; a stack element
+loop1(ℓ1, s1, ℓ2, s2) keeps its two labels.
+
+**Our extension to locals and parameters (2026-10-24).** Until 2026-10-23 the comparison covered
+the fragment shared with `janus.v` (no locals, no parameters). Their language has neither (locals
+are their own future work), so to compare on the whole of `janus.v` the machine is extended, in
+the style of their rules, by us: a procedure root carries the actuals (`RProc q ys`, `RInv q ys`,
+whose statement is the body instantiated by `inst`, as in `jstep`); the call and return rules take
+`call q(ys)` with the premise `call_ok`; a local block gets two labels (local at PT1, delocal at
+PT2) around its body and a stack element local(ℓ, v) holding the outer value of its variable, with
+four new rules (`LF_Local`, `LF_Delocal`, `LB_Local`, `LB_Delocal`). On their language the rules
+are theirs (the new ones never apply, `call_ok` holds, `inst` is the body). Every result of this
+section now holds for the whole of `janus.v`, without the earlier hypotheses `lv_penv` and
+`frag`; `lv_local_actual_run` runs a call whose actual is the name of a local of the body. What
+this shows is a correspondence with *our* extension of their semantics, not with a published
+one.
 
 **Simulation.** `phi` reads ⟨ℓ, ℓ′, π⟩ off a token position (next label from the position, last
 label and stack from the context spine). `lv_fwd_sim`: every `jstep` either leaves `phi`
