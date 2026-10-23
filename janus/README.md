@@ -14,13 +14,13 @@ not import `proofs.v`, but mirrors its proof architecture section by section.
     make janus-check   # kernel re-validation of RCore.janus.janus
     make janus-audit   # tools/audit.sh with SRC=janus/janus.v: no Admitted/Axiom, all Closed
     make janus-embed janus-embed-check janus-embed-audit   # janus/embed.v
-    make janus-mutants # tools/janus-mutants.py: 18 one-point mutants (3 in lv.v, 2 in embed.v), each must fail in the expected proof
+    make janus-mutants # tools/janus-mutants.py: 19 one-point mutants (4 in lv.v, 2 in embed.v), each must fail in the expected proof
 
 ## Files
 
 - `janus.v` — syntax, `jstep Γ` (31 rules), `bstep`, `inv`/`cs_inv`, well-formedness with decision procedures, `step_fun`, all proofs (129 results, axiom-free, Rocq 9.1.1). Every definition and theorem takes the store size (`nv` variables, `na` arrays of length `asize`) as implicit arguments; the examples fix 10, 4, 8 (and §15f 3, 1, 2).
 - `RULES.md` — the 31-rule table, the derivation of each rule from `exec_ss`, per-rule partial injectivity, the theorem table, exclusions and next steps.
-- `lv.v` — the program-counter semantics of Lanese–Vidal (forward and backward rules, as printed and repaired), the map `phi` from token positions to their configurations, `lv_fwd_sim` / `lv_bwd_sim` / `lv_run` / `exec_lv` (every token step is zero or one step of their machine, forwards and backwards), the converse for the repaired machine (`lv_complete_step`, `lv_complete_run`) their Lemma 1 in both directions (`lv_lemma1`), the backward converse and their Loop Lemma between reachable configurations (`bdec_cs`, `lv_loop_lemma`), and four errata of the published rules as examples (123 results, axiom-free; `make janus-lv janus-lv-check janus-lv-audit`).
+- `lv.v` — the program-counter semantics of Lanese–Vidal (forward and backward rules, as printed and repaired), the map `phi` from token positions to their configurations, `lv_fwd_sim` / `lv_bwd_sim` / `lv_run` / `exec_lv` (every token step is zero or one step of their machine, forwards and backwards), the converse for the repaired machine (`lv_complete_step`, `lv_complete_run`) their Lemma 1 in both directions (`lv_lemma1`), the backward converse and their Loop Lemma between reachable configurations (`bdec_cs`, `lv_loop_lemma`), and four errata of the published rules as examples (131 results, axiom-free; extended by us to local blocks and parameters on 2026-10-24, so every result covers the whole of `janus.v`; `make janus-lv janus-lv-check janus-lv-audit`).
 - `embed.v` — R-CORE (`../proofs.v`) as an instance of the Janus rules: the fragment of `jstep` for skip, assignment, sequencing and loops with its data layer as a parameter (`gstep`) is `jstep` itself on Janus data (`jstep_gstep_iff`) and a stuttering bisimulation of R-CORE's `exec_ss` on R-CORE data (`rcore_sim`, `adm_step`, `rcore_embed_runs`) (23 results, axiom-free; `make janus-embed janus-embed-check janus-embed-audit`).
 - `LANESE_VIDAL.md` — construct-by-construct and result-by-result comparison with the PC-based semantics of Lanese and Vidal, and what still needs the paper's figures.
 
@@ -71,4 +71,6 @@ Next steps, in priority order (details in `RULES.md` §7):
    `LANESE_VIDAL.md` §6), both directions for the repaired rules. The backward machine's
    completeness and the Loop Lemma followed on 2026-10-19 (`lv_loop_lemma`). Earlier note: only the `pdftotext` extraction in rc-survey was readable here, so
    `LANESE_VIDAL.md` §5 lists what still needs the paper (rule shapes, loop-label alignment).
+   Extended to local blocks and parameters on 2026-10-24 (our extension of their machine;
+   `LANESE_VIDAL.md` §6), so the comparison covers the whole of `janus.v`.
 6. ~~A big-step semantics and its equivalence with `jstep`~~ — done (`exec_iff_jstar`).

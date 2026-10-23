@@ -114,6 +114,12 @@ MUTANTS = [
      [("      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l l') ->",
        "      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l' l'') ->")],
      "e3_fixed_rejects", LV),
+    # janus/lv.v, our extension: a delocal that does not restore the saved
+    # outer value no longer matches J_Local_Exit.
+    ("lv: Delocal does not restore the saved outer value (extension)",
+     [("              (mkcfg (update s x v) (r, PT2 p) l2' π).",
+       "              (mkcfg s (r, PT2 p) l2' π).")],
+     "lv_fwd_sim", LV),
     # janus/embed.v: break the embedding on either side (target EMBED).
     ("embed: G_Loop_Iter2 goes to the until-point (Theorem A must notice)",
      [("      gstep (GC_loop_loop g1 s1 (GC_post s2) g2, s) (GC_loop_from g1 s1 s2 g2, s)\n",
