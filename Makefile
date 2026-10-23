@@ -1,6 +1,6 @@
 ROCQ ?= rocq
 
-.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants janus-lv janus-lv-check janus-lv-audit janus-extract janus-extract-test clean
+.PHONY: all check audit correspondence extract extract-test witness-test janus janus-check janus-audit janus-mutants janus-lv janus-lv-check janus-lv-audit janus-embed janus-embed-check janus-embed-audit janus-extract janus-extract-test clean
 
 all: proofs.vo
 
@@ -74,6 +74,21 @@ janus-lv-check: janus/lv.vo
 
 janus-lv-audit: janus/janus.vo
 	SRC=janus/lv.v ROCQ=$(ROCQ) ./tools/audit.sh
+
+# R-CORE (proofs.v) as an instance of the Janus control-token rules:
+# the fragment of jstep for skip/assignment/sequence/loop with its data
+# layer as a parameter is jstep itself on Janus data and a stuttering
+# bisimulation of exec_ss on R-CORE data.
+janus-embed: janus/embed.vo
+
+janus/embed.vo: janus/embed.v janus/janus.vo proofs.vo
+	$(ROCQ) c -Q . RCore janus/embed.v
+
+janus-embed-check: janus/embed.vo
+	$(ROCQ) check -Q . RCore RCore.janus.embed
+
+janus-embed-audit: janus/janus.vo proofs.vo
+	SRC=janus/embed.v ROCQ=$(ROCQ) ./tools/audit.sh
 
 # The Janus interpreter extracted from janus.v, run forwards and backwards
 # on the worked examples (janus/test_janus.ml).

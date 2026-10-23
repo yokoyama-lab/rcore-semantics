@@ -331,12 +331,60 @@ Definition inj_on (ρ : var -> var) (l : list var) : Prop :=
 Definition inj_onb (ρ : var -> var) (l : list var) : bool :=
   List.forallb (fun u => List.forallb (fun w => negb (var_eqb (ρ u) (ρ w)) || var_eqb u w) l) l.
 
+(* The free variables of a statement: those of [vars] except the
+   variable a [local x] block binds, inside that block.  (Well-formedness
+   keeps x out of the block's two expressions, so dropping x from them
+   too loses nothing.) *)
+Definition drop (x : var) (l : list var) : list var :=
+  List.filter (fun v => negb (var_eqb x v)) l.
+
+Fixpoint fv (st : stmt) : list var :=
+  match st with
+  | Sskip           => List.nil
+  | Sass x _ e      => x :: vars_expr e
+  | Sseq a b        => fv a +++ fv b
+  | Sif e1 a b e2   => vars_expr e1 +++ fv a +++ fv b +++ vars_expr e2
+  | Sloop e1 a b e2 => vars_expr e1 +++ fv a +++ fv b +++ vars_expr e2
+  | Scall _ ys      => ys
+  | Suncall _ ys    => ys
+  | Slocal x e1 a e2 => drop x (vars_expr e1 +++ fv a +++ vars_expr e2)
+  | Saass _ e1 _ e2  => vars_expr e1 +++ vars_expr e2
+  end.
+
+(* No capture: inside every [local x] block of st, ρ keeps the bound x
+   apart from the variables free in the block.  [rename] renames the
+   binder along with everything else, so a block whose name is an actual
+   would otherwise capture the formal bound to that actual. *)
+Fixpoint nocap (ρ : var -> var) (st : stmt) : bool :=
+  match st with
+  | Sseq a b         => nocap ρ a && nocap ρ b
+  | Sif _ a b _      => nocap ρ a && nocap ρ b
+  | Sloop _ a b _    => nocap ρ a && nocap ρ b
+  | Slocal x e1 a e2 => inj_onb ρ (x :: fv (Slocal x e1 a e2)) && nocap ρ a
+  | _                => true
+  end.
+
 (* The side condition of the four call/uncall rules: arities agree, the
-   formals and the actuals are each duplicate-free, and the renaming is
-   injective on the variables the body touches.  The last clause is
-   Janus's no-aliasing rule: an actual may not coincide with a global the
-   body uses (nor with another actual).  A call violating it is stuck. *)
+   formals and the actuals are each duplicate-free, the renaming is
+   injective on the free variables of the body, and no local block of the
+   body captures a renamed variable.  The third clause is Janus's
+   no-aliasing rule: an actual may not coincide with a global the body
+   uses (nor with another actual).  A variable bound by a local block of
+   the body is not a global, so an actual may share its name as long as
+   the block does not capture (the fourth clause).  A call violating the
+   condition is stuck. *)
 Definition call_ok (pr : proc) (ys : list var) : bool :=
+  Nat.eqb (List.length (formals pr)) (List.length ys)
+  && nodupb (formals pr) && nodupb ys
+  && inj_onb (ren (formals pr) ys) (fv (body pr))
+  && nocap (ren (formals pr) ys) (body pr).
+
+(* The condition of the previous version (commit febf244): injectivity on
+   every variable of the body, so a name bound by a local block counted as
+   a global.  [call_ok_vars_call_ok] shows that [call_ok] accepts every
+   call this one accepts; [ex_local_actual] is a call it rejects and
+   [call_ok] accepts. *)
+Definition call_ok_vars (pr : proc) (ys : list var) : bool :=
   Nat.eqb (List.length (formals pr)) (List.length ys)
   && nodupb (formals pr) && nodupb ys
   && inj_onb (ren (formals pr) ys) (vars (body pr)).
@@ -1072,14 +1120,129 @@ Proof.
   - constructor; apply anf_expr_rename; assumption.
 Qed.
 
+(* A variable of a local block's body is the bound x or free in the block. *)
+Lemma in_drop : forall x u l, List.In u l -> u = x \/ List.In u (drop x l).
+Proof.
+  intros x u l Hu. destruct (Fin.eq_dec x u) as [-> | Hne]; [left; reflexivity | right].
+  unfold drop. apply List.filter_In. split; [exact Hu |].
+  unfold var_eqb. destruct (Fin.eq_dec x u); [contradiction | reflexivity].
+Qed.
+
+(* The same as [wf_stmt_rename], with injectivity only on the free
+   variables, plus no capture at the local blocks. *)
+Lemma wf_stmt_rename_fv :
+  forall ρ st, wf_stmt st -> inj_on ρ (fv st) -> nocap ρ st = true ->
+               wf_stmt (rename ρ st).
+Proof.
+  intros ρ st Hwf; induction Hwf; intros Hinj Hnc; simpl in *.
+  - constructor.
+  - constructor. apply nf_expr_rename; [exact H |].
+    intros y Hy Heq. apply (Hinj y x); simpl; auto.
+  - apply andb_prop in Hnc as [Hn1 Hn2].
+    apply wf_Sseq; [apply IHHwf1; [exact (@inj_on_app_l _ _ _ Hinj) | exact Hn1]
+                 | apply IHHwf2; [exact (@inj_on_app_r _ _ _ Hinj) | exact Hn2]].
+  - apply andb_prop in Hnc as [Hn1 Hn2].
+    pose proof (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ Hinj)) as H1.
+    pose proof (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ (@inj_on_app_r _ _ _ Hinj))) as H2.
+    constructor; auto.
+  - apply andb_prop in Hnc as [Hn1 Hn2].
+    pose proof (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ Hinj)) as H1.
+    pose proof (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ (@inj_on_app_r _ _ _ Hinj))) as H2.
+    constructor; auto.
+  - constructor.
+  - constructor.
+  - (* Slocal: the check at this block covers x and the block's free
+       variables, which include those of e1 and e2 and those of st
+       other than x *)
+    apply andb_prop in Hnc as [Hblk Hn].
+    apply inj_onb_spec in Hblk.
+    assert (Hin : forall u, List.In u (vars_expr e1 +++ fv st +++ vars_expr e2) ->
+                  List.In u (x :: drop x (vars_expr e1 +++ fv st +++ vars_expr e2))).
+    { intros u Hu. destruct (@in_drop x u _ Hu) as [-> | Hd]; [left; reflexivity | right; exact Hd]. }
+    constructor.
+    + apply nf_expr_rename; [exact H |].
+      intros y Hy Heq. apply (Hblk y x); [apply Hin | left; reflexivity | exact Heq].
+      apply List.in_or_app; left; exact Hy.
+    + apply nf_expr_rename; [exact H0 |].
+      intros y Hy Heq. apply (Hblk y x); [apply Hin | left; reflexivity | exact Heq].
+      apply List.in_or_app; right; apply List.in_or_app; right; exact Hy.
+    + apply IHHwf; [| exact Hn].
+      intros u w Hu Hw. apply Hblk; apply Hin; apply List.in_or_app; right;
+        apply List.in_or_app; left; assumption.
+  - constructor; apply anf_expr_rename; assumption.
+Qed.
+
 (* The body a well-formed environment instantiates at an accepted call is
    well-formed. *)
 Lemma wf_inst :
   forall Γ p ys, wf_penv Γ -> call_ok (Γ p) ys = true -> wf_stmt (inst (Γ p) ys).
 Proof.
   intros Γ p ys HΓ Hok. unfold inst, call_ok in *.
-  apply andb_prop in Hok as [_ Hinj].
-  apply wf_stmt_rename; [apply HΓ | apply inj_onb_spec; exact Hinj].
+  apply andb_prop in Hok as [Hok Hnc]. apply andb_prop in Hok as [_ Hinj].
+  apply wf_stmt_rename_fv; [apply HΓ | apply inj_onb_spec; exact Hinj | exact Hnc].
+Qed.
+
+(* ---- The refined call_ok accepts every call the previous one did ---- *)
+
+Lemma inj_onb_complete : forall ρ l, inj_on ρ l -> inj_onb ρ l = true.
+Proof.
+  unfold inj_onb, inj_on; intros ρ l H.
+  apply List.forallb_forall; intros u Hu. apply List.forallb_forall; intros w Hw.
+  unfold var_eqb. destruct (Fin.eq_dec (ρ u) (ρ w)) as [Heq | Hne]; simpl.
+  - destruct (Fin.eq_dec u w) as [_ | Hne]; [reflexivity |].
+    exfalso; apply Hne; exact (H u w Hu Hw Heq).
+  - reflexivity.
+Qed.
+
+Lemma inj_on_incl :
+  forall ρ l l', (forall u, List.In u l' -> List.In u l) -> inj_on ρ l -> inj_on ρ l'.
+Proof. unfold inj_on; intros ρ l l' Hincl H u w Hu Hw; apply H; auto. Qed.
+
+Lemma in_drop_in : forall x u l, List.In u (drop x l) -> List.In u l.
+Proof. unfold drop; intros x u l H; apply List.filter_In in H; tauto. Qed.
+
+Lemma fv_incl_vars : forall st u, List.In u (fv st) -> List.In u (vars st).
+Proof.
+  induction st; intros u Hu; simpl in *; auto;
+    repeat match goal with
+    | [ H : List.In _ (drop _ _) |- _ ] => apply in_drop_in in H
+    | [ H : List.In _ (_ +++ _) |- _ ] => apply List.in_app_or in H as [H | H]
+    | [ H : _ \/ _ |- _ ] => destruct H as [H | H]
+    end;
+    eauto 10 using List.in_or_app, List.in_cons, List.in_eq.
+Qed.
+
+Lemma nocap_of_inj_vars : forall ρ st, inj_on ρ (vars st) -> nocap ρ st = true.
+Proof.
+  intros ρ st; induction st; intros Hinj; simpl in *; auto.
+  - rewrite IHst1, IHst2; [reflexivity | |].
+    + exact (@inj_on_app_r _ _ _ Hinj).
+    + exact (@inj_on_app_l _ _ _ Hinj).
+  - rewrite IHst1, IHst2; [reflexivity | |].
+    + exact (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ (@inj_on_app_r _ _ _ Hinj))).
+    + exact (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ Hinj)).
+  - rewrite IHst1, IHst2; [reflexivity | |].
+    + exact (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ (@inj_on_app_r _ _ _ Hinj))).
+    + exact (@inj_on_app_l _ _ _ (@inj_on_app_r _ _ _ Hinj)).
+  - rewrite IHst, inj_onb_complete; [reflexivity | |].
+    + eapply inj_on_incl; [| exact Hinj].
+      intros u [-> | Hu]; [left; reflexivity | right].
+      apply in_drop_in in Hu. apply List.in_app_or in Hu as [Hu | Hu];
+        [apply List.in_or_app; left; exact Hu |].
+      apply List.in_app_or in Hu as [Hu | Hu];
+        apply List.in_or_app; right; apply List.in_or_app;
+        [left; apply fv_incl_vars; exact Hu | right; exact Hu].
+    + eapply inj_on_incl; [| exact Hinj].
+      intros u Hu; right; apply List.in_or_app; right; apply List.in_or_app; left; exact Hu.
+Qed.
+
+Theorem call_ok_vars_call_ok : forall pr ys, call_ok_vars pr ys = true -> call_ok pr ys = true.
+Proof.
+  unfold call_ok_vars, call_ok; intros pr ys H.
+  apply andb_prop in H as [H Hinj]. rewrite H; simpl.
+  apply inj_onb_spec in Hinj.
+  rewrite inj_onb_complete, nocap_of_inj_vars; [reflexivity | exact Hinj |].
+  eapply inj_on_incl; [| exact Hinj]. exact (@fv_incl_vars (body pr)).
 Qed.
 
 Local Hint Resolve wf_inst wf_stmt_inv : core.
@@ -2114,8 +2277,18 @@ Qed.
 Lemma inst_no_params : forall b, inst (mkproc List.nil b) List.nil = b.
 Proof. intro b; unfold inst; simpl; apply rename_id. Qed.
 
+Lemma nocap_id : forall st, nocap (fun v => v) st = true.
+Proof. induction st; simpl; rewrite ?inj_onb_id, ?IHst, ?IHst1, ?IHst2; reflexivity. Qed.
+
+(* A procedure without formals called with no actuals is always accepted. *)
+Lemma call_ok_nil_formals : forall pr, formals pr = List.nil -> call_ok pr List.nil = true.
+Proof.
+  intros [xs b] H; simpl in H; subst xs; unfold call_ok; simpl.
+  rewrite inj_onb_id; apply nocap_id.
+Qed.
+
 Lemma call_ok_no_params : forall b, call_ok (mkproc List.nil b) List.nil = true.
-Proof. intro b; unfold call_ok; simpl; apply inj_onb_id. Qed.
+Proof. intro b; apply call_ok_nil_formals; reflexivity. Qed.
 
 End Janus.
 
@@ -2224,6 +2397,74 @@ Proof.
   match goal with [ Hn : nf_expr _ _ |- _ ] => inversion Hn; subst end.
   match goal with [ Hne : ?a <> ?a |- _ ] => apply Hne; reflexivity end.
 Qed.
+
+(* ---- 15a'. An actual that shares its name with a local of the body ---- *)
+
+(* procedure 0 (a):  a += 1;  local X5 = 0;  X5 += 2;  delocal X5 = 2
+   procedure 1 (a):  local X5 = 0;  X5 += a;  delocal X5 = a
+   with formal a = X0 in both.  X5 is the name of a local block in each
+   body, not a global. *)
+Definition Γ2 : @penv 10 4 := fun p =>
+  match p with
+  | O => mkproc (X0 :: List.nil)
+           (Sseq (Sass X0 Uadd (Econst 1))
+                 (Slocal X5 (Econst 0) (Sass X5 Uadd (Econst 2)) (Econst 2)))
+  | _ => mkproc (X0 :: List.nil)
+           (Slocal X5 (Econst 0) (Sass X5 Uadd (Evar X0)) (Evar X0))
+  end.
+
+Lemma wf_penv_Γ2 : wf_penv Γ2.
+Proof. intros [|p]; simpl; repeat constructor; intro H; discriminate H. Qed.
+
+(* call 0 (X5): the previous condition counted X5 as a global of the body
+   and rejected the call.  The refined one accepts it. *)
+Example ex_local_actual :
+  call_ok_vars (Γ2 0%nat) (X5 :: List.nil) = false
+  /\ call_ok (Γ2 0%nat) (X5 :: List.nil) = true.
+Proof. split; vm_compute; reflexivity. Qed.
+
+(* ... and the call does what call-by-reference means: the caller's X5
+   (7) is incremented through a, and the block restores it afterwards. *)
+Example j_local_actual_run :
+  run Γ2 20%nat (CS_pre (Scall 0%nat (X5 :: List.nil)), update zero_store X5 7)
+  = (CS_post (Scall 0%nat (X5 :: List.nil)), update zero_store X5 8).
+Proof. vm_compute. reflexivity. Qed.
+
+(* call 1 (X5) is different: a is used inside the block, so renaming a to
+   X5 would make the block read its own X5 where the body means the
+   caller's.  The renamed body is not well-formed, and the call is stuck. *)
+Example j_local_capture_stuck :
+  step_fun Γ2 (CS_pre (Scall 1%nat (X5 :: List.nil))) zero_store = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example capture_breaks_wf : ~ wf_stmt (inst (Γ2 1%nat) (X5 :: List.nil)).
+Proof.
+  vm_compute. intro H; inversion H; subst.
+  match goal with [ Hn : nf_expr _ (Evar _) |- _ ] => inversion Hn; subst end.
+  match goal with [ Hne : ?a <> ?a |- _ ] => apply Hne; reflexivity end.
+Qed.
+
+(* With any other actual, procedure 1 runs: X5 is set to the value of the
+   actual and back to 0, and nothing else changes. *)
+Example j_local_noncapture_run :
+  run Γ2 20%nat (CS_pre (Scall 1%nat (X3 :: List.nil)), update zero_store X3 4)
+  = (CS_post (Scall 1%nat (X3 :: List.nil)), update zero_store X3 4).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A local block shadows the global of its name for its whole dynamic
+   extent, calls included: procedure 0 of Γ3 reads the global X0, and
+   called inside [local X0 = 5; ...; delocal X0 = 5] it reads 5.  (Under
+   static scoping it would read the global X0, here 0.)  This is why a
+   capture-avoiding renaming of a local block must also avoid the globals
+   of the procedures called from it (RULES.md §1). *)
+Definition Γ3 : @penv 10 4 := fun _ => mkproc List.nil (Sass X1 Uadd (Evar X0)).
+
+Definition ex_dyn : @stmt 10 4 :=
+  Slocal X0 (Econst 5) (Scall 0%nat List.nil) (Econst 5).
+
+Example j_local_dynamic_extent :
+  run Γ3 20%nat (CS_pre ex_dyn, zero_store) = (CS_post ex_dyn, update zero_store X1 5).
+Proof. vm_compute. reflexivity. Qed.
 
 (* ---- 15b. local/delocal: worked examples ---- *)
 
@@ -2542,6 +2783,23 @@ Print Assumptions j_uncall_undoes_call.
 Print Assumptions j_alias_actuals_stuck.
 Print Assumptions j_alias_global_stuck.
 Print Assumptions alias_breaks_wf.
+Print Assumptions in_drop.
+Print Assumptions wf_stmt_rename_fv.
+Print Assumptions inj_onb_complete.
+Print Assumptions inj_on_incl.
+Print Assumptions in_drop_in.
+Print Assumptions fv_incl_vars.
+Print Assumptions nocap_of_inj_vars.
+Print Assumptions call_ok_vars_call_ok.
+Print Assumptions nocap_id.
+Print Assumptions call_ok_nil_formals.
+Print Assumptions wf_penv_Γ2.
+Print Assumptions ex_local_actual.
+Print Assumptions j_local_actual_run.
+Print Assumptions j_local_capture_stuck.
+Print Assumptions capture_breaks_wf.
+Print Assumptions j_local_noncapture_run.
+Print Assumptions j_local_dynamic_extent.
 Print Assumptions local_enter_injective.
 Print Assumptions local_exit_injective.
 Print Assumptions update_shadow.

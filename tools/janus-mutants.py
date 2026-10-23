@@ -21,6 +21,7 @@ import tempfile
 
 SRC = "janus/janus.v"
 LV = "janus/lv.v"
+EMBED = "janus/embed.v"
 ROCQ = os.environ.get("ROCQ", "rocq")
 
 # (description, [(old, new), ...], expected first failing result)
@@ -37,6 +38,11 @@ MUTANTS = [
      [("  | J_Call_Enter : forall p ys s,\n      call_ok (Γ p) ys = true ->\n",
        "  | J_Call_Enter : forall p ys s,\n")],
      "wf_cs_step_preserved_cfg"),
+    ("call_ok: no-capture clause (nocap) dropped",
+     [("  && inj_onb (ren (formals pr) ys) (fv (body pr))\n"
+       "  && nocap (ren (formals pr) ys) (body pr).",
+       "  && inj_onb (ren (formals pr) ys) (fv (body pr)).")],
+     "wf_inst"),
     ("J_Local_Exit: outer value not restored",
      [("(CS_post (Slocal x e1 st e2), update s x v)\n  | J_Ctx_Local",
        "(CS_post (Slocal x e1 st e2), s)\n  | J_Ctx_Local")],
@@ -108,6 +114,15 @@ MUTANTS = [
      [("      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l l') ->",
        "      stmt_at l' = Some Sskip -> edge l' l'' ->\n      (fixed = true -> edge l' l'') ->")],
      "e3_fixed_rejects", LV),
+    # janus/embed.v: break the embedding on either side (target EMBED).
+    ("embed: G_Loop_Iter2 goes to the until-point (Theorem A must notice)",
+     [("      gstep (GC_loop_loop g1 s1 (GC_post s2) g2, s) (GC_loop_from g1 s1 s2 g2, s)\n",
+       "      gstep (GC_loop_loop g1 s1 (GC_post s2) g2, s) (GC_loop_until g1 s1 s2 g2, s)\n")],
+     "gstep_jstep_cfg", EMBED),
+    ("embed: R-CORE mid-loop translated to the from-point (Theorem B must notice)",
+     [("  | proofs.CC_mid_loop x c y => GC_loop_until x GSkip (T c) y\n",
+       "  | proofs.CC_mid_loop x c y => GC_loop_from x GSkip (T c) y\n")],
+     "rcore_sim", EMBED),
 ]
 
 HEADER = re.compile(
@@ -128,10 +143,12 @@ def build(text, target=SRC):
     try:
         os.makedirs(os.path.join(d, "janus"))
         if target != SRC:
-            # lv.v imports janus.v: build the unmutated janus.v first
-            shutil.copy(SRC, os.path.join(d, SRC))
-            subprocess.run([ROCQ, "c", "-Q", ".", "RCore", SRC], cwd=d, check=True,
-                           capture_output=True, text=True, timeout=1800)
+            # lv.v and embed.v import janus.v (embed.v also proofs.v):
+            # build the unmutated dependencies first
+            for dep in [SRC] + (["proofs.v"] if target == EMBED else []):
+                shutil.copy(dep, os.path.join(d, dep))
+                subprocess.run([ROCQ, "c", "-Q", ".", "RCore", dep], cwd=d, check=True,
+                               capture_output=True, text=True, timeout=1800)
         with open(os.path.join(d, target), "w") as f:
             f.write(text)
         r = subprocess.run([ROCQ, "c", "-Q", ".", "RCore", target], cwd=d,
@@ -160,6 +177,9 @@ def main():
     good_lv, _ = build(open(LV).read(), LV)
     print(f"control lv.v (unmutated)      : {'compiles' if good_lv else 'FAILS'}")
     ok &= good_lv
+    good_embed, _ = build(open(EMBED).read(), EMBED)
+    print(f"control embed.v (unmutated)   : {'compiles' if good_embed else 'FAILS'}")
+    ok &= good_embed
     for i, m in enumerate(MUTANTS, 1):
         desc, reps, expected = m[:3]
         target = m[3] if len(m) > 3 else SRC

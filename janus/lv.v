@@ -1410,7 +1410,7 @@ Qed.
 
 Lemma call_ok_nil : lv_penv Γ -> forall q, call_ok (Γ q) [] = true.
 Proof.
-  intros H q. unfold call_ok. rewrite (proj1 (H q)). simpl. exact (inj_onb_id _).
+  intros H q. apply call_ok_nil_formals. exact (proj1 (H q)).
 Qed.
 
 (* ---- 7c. From a step of the machine back to token steps ---- *)
