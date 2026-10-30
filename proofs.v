@@ -4421,6 +4421,61 @@ Print Assumptions cong_iff_admin.
 Print Assumptions cc_cong_erase.
 Print Assumptions cc_cong_preserves_wf.
 
+(* ----------------------------------------------------------------- *)
+(* 41C'. The witnesses stay stuck modulo the congruence               *)
+(*                                                                    *)
+(*  [ss_paper] (41B') has no rules for [;]: the paper moves the token *)
+(*  across [;] by the congruence, and reads [->] modulo it (p. 210).  *)
+(*  Sect. 41B' argued in prose that this cannot unblock the witnesses *)
+(*  because they contain no [;].  This makes the argument a theorem:  *)
+(*  the congruence class of a pre-assignment is a singleton, so the   *)
+(*  printed ss read modulo [cc_cong] is stuck on both witnesses too.  *)
+(* ----------------------------------------------------------------- *)
+
+(* The printed ss read modulo the congruence: a step of [ss_paper]
+   bracketed by [cc_cong] on both sides. *)
+Inductive ss_paper_cong : cont_cmd * store -> cont_cmd * store -> Prop :=
+  | SPC_step : forall cc1 cc1' cc2' cc2 (s s' : store),
+      cc_cong cc1 cc1' ->
+      ss_paper (cc1', s) (cc2', s') ->
+      cc_cong cc2' cc2 ->
+      ss_paper_cong (cc1, s) (cc2, s').
+
+Lemma cc_cong_at_pre_asn_iff : forall x e cc1 cc2,
+    cc_cong cc1 cc2 ->
+    (cc1 = CC_at_pre (Cass x e) <-> cc2 = CC_at_pre (Cass x e)).
+Proof.
+  intros x e cc1 cc2 H; induction H; split; intro E;
+    try discriminate; try tauto.
+Qed.
+
+Lemma cc_cong_at_pre_asn : forall x e cc,
+    cc_cong (CC_at_pre (Cass x e)) cc -> cc = CC_at_pre (Cass x e).
+Proof.
+  intros x e cc H. apply (cc_cong_at_pre_asn_iff x e H). reflexivity.
+Qed.
+
+Example gap_witness_paper_cong_stuck :
+  forall t, ~ ss_paper_cong (CC_at_pre (X0 ^= Enil), nil_store) t.
+Proof.
+  intros t H; inversion H as [cc1 cc1' cc2' cc2 s s' Hc Hp _]; subst.
+  apply cc_cong_at_pre_asn in Hc; subst.
+  exact (gap_witness_paper_ss_stuck Hp).
+Qed.
+
+Example gap_witness2_paper_cong_stuck :
+  forall t, ~ ss_paper_cong (CC_at_pre (X0 ^= Eeq X1 X2), neq_store) t.
+Proof.
+  intros t H; inversion H as [cc1 cc1' cc2' cc2 s s' Hc Hp _]; subst.
+  apply cc_cong_at_pre_asn in Hc; subst.
+  exact (gap_witness2_paper_ss_stuck Hp).
+Qed.
+
+Print Assumptions cc_cong_at_pre_asn_iff.
+Print Assumptions cc_cong_at_pre_asn.
+Print Assumptions gap_witness_paper_cong_stuck.
+Print Assumptions gap_witness2_paper_cong_stuck.
+
 (* ================================================================= *)
 (* 41D. Determinism of the PRINTED rules, an executable stepper,      *)
 (*      where the amended rules are stuck, halting, and the inverter  *)
@@ -5383,3 +5438,7 @@ Print Assumptions prog_inv_involutive.
 Print Assumptions wf_prog_inv.
 Print Assumptions prog_denot_injective.
 Print Assumptions printed_rules_are_included.
+Print Assumptions cc_cong_at_pre_asn_iff.
+Print Assumptions cc_cong_at_pre_asn.
+Print Assumptions gap_witness_paper_cong_stuck.
+Print Assumptions gap_witness2_paper_cong_stuck.
