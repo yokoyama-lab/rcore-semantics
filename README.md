@@ -101,29 +101,29 @@ rest of it is; its size is not the price of those theorems.
 | &nbsp;&nbsp;&nbsp;&nbsp;along a run | — | `ss_bwd_deterministic_reachable` |
 | &nbsp;&nbsp;&nbsp;&nbsp;well-formedness is decidable, command and controlled | — | `wf_cmd_dec`, `wf_cc_dec` |
 | &nbsp;&nbsp;&nbsp;&nbsp;self-assignment `X ^= X` is excluded by it | — | `nf_expr_not_self` |
-| **Divergences from the printed rules (Sect. 2)** | | |
-| the equivalence theorem does not hold as printed | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
-| &nbsp;&nbsp;&nbsp;&nbsp;the printed ss is stuck where the amended rule moves | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
+| **Divergences from the rules of the source paper (Sect. 2)** | | |
+| the equivalence theorem does not hold for the rules as stated | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the ss as stated is stuck where the amended rule moves | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;from the assignment rules alone | Theorem 1 | `rc2026_theorem1_fails_as_printed` |
-| &nbsp;&nbsp;&nbsp;&nbsp;the printed ss rules, transcribed | Fig. 9b | `ss_paper_asn`, `ss_paper_loop`, `ss_paper` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the ss rules as stated, transcribed | Fig. 9b | `ss_paper_asn`, `ss_paper_loop`, `ss_paper` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the witnesses stay stuck modulo the congruence | Eq. (7) | `gap_witness_paper_cong_stuck`, `gap_witness2_paper_cong_stuck` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the class of a pre-assignment is a singleton | — | `cc_cong_at_pre_asn` |
-| &nbsp;&nbsp;&nbsp;&nbsp;the printed ds rules, transcribed | Fig. 2c | `ds_paper`, `loop_paper` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the ds rules as stated, transcribed | Fig. 2c | `ds_paper`, `loop_paper` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its side condition is the domain of ⊙ | Fig. 2c | `ds_paper_side_iff_odot` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;so on assignments it is our `Asn_ds` | Fig. 2c | `ds_paper_asn_agrees` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and it denotes both witnesses | Fig. 2c | `gap_witness_paper_ds`, `gap_witness2_paper_ds` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its loop guard is ours | Fig. 2c | `ds_loop_guard_as_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;only an assignment rule applies there | — | `exec_ss_from_pre_asn_inv` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the equality-test witness | Theorem 1 | `gap_witness2_wf`, `gap_witness2_ds` |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on which the printed ss is stuck | Theorem 1 | `gap_witness2_paper_ss_stuck` |
-| &nbsp;&nbsp;&nbsp;&nbsp;the printed fss rules, transcribed | Fig. 11a | `fstep_paper_asn` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on which the ss as stated is stuck | Theorem 1 | `gap_witness2_paper_ss_stuck` |
+| &nbsp;&nbsp;&nbsp;&nbsp;the fss rules as stated, transcribed | Fig. 11a | `fstep_paper_asn` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on which witness 1 moves | Fig. 11a | `gap_witness_paper_fss_moves` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and witness 2 | Fig. 11a | `gap_witness2_paper_fss_moves` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the three facts in one statement | Theorem 1 | `rc2026_printed_fss_moves_where_ss_is_stuck` |
-| the printed loop rules are ours | Fig. 9b | `loop_rules_as_printed` |
+| the loop rules as stated are ours | Fig. 9b | `loop_rules_as_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;both are stuck on a value neither `t` nor `f` | — | `loop_odd_store_stuck`, `loop_gap_paper_stuck` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;which a well-formed program reaches | — | `odd_store_wf`, `odd_store_reachable` |
-| which store the printed rules evaluate `E` in | Fig. 9b | (a reading, not a theorem) |
+| which store the rules as stated evaluate `E` in | Fig. 9b | (a reading, not a theorem) |
 | &nbsp;&nbsp;&nbsp;&nbsp;the two readings agree on well-formed assignments | — | `eval_readings_agree_on_wf` |
 | &nbsp;&nbsp;&nbsp;&nbsp;and differ without well-formedness | — | `eval_readings_differ_without_wf` |
 | &nbsp;&nbsp;&nbsp;&nbsp;well-formedness is strictly stronger than needed | — | `eval_indep_not_implies_nf`, `nf_expr_implies_eval_indep` |
