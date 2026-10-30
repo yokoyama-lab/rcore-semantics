@@ -102,7 +102,7 @@ rest of it is; its size is not the price of those theorems.
 | &nbsp;&nbsp;&nbsp;&nbsp;well-formedness is decidable, command and controlled | — | `wf_cmd_dec`, `wf_cc_dec` |
 | &nbsp;&nbsp;&nbsp;&nbsp;self-assignment `X ^= X` is excluded by it | — | `nf_expr_not_self` |
 | **Divergences from the rules of the source paper (Sect. 2)** | | |
-| the equivalence theorem does not hold for the rules as stated | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
+| the equivalence theorem fails for the rules as stated | Theorem 1 | `rc2026_theorem1_fails_as_printed_all_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the ss as stated is stuck where the amended rule moves | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;from the assignment rules alone | Theorem 1 | `rc2026_theorem1_fails_as_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the ss rules as stated, transcribed | Fig. 9b | `ss_paper_asn`, `ss_paper_loop`, `ss_paper` |
