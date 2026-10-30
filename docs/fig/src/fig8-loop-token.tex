@@ -1,0 +1,91 @@
+% Adapted from [MaYo26].  Regenerate: see README.md in this directory.
+\documentclass[border=6pt,varwidth=17cm]{standalone}
+\input{preamble}
+\begin{document}
+\begin{tikzpicture}[scale=.85, transform shape]
+  \fill (-1, 0) circle (3pt);
+  \node[assert] (X) at (0, 0) {X}; %
+  \node[test, right=of X] (Y) {Y};
+  \node[proc] (C) at ($(Y)+(-1, -1)$) {C};
+  \draw[->] (X) -- ++(-1.4, 0) -- (X);
+  \node[label] at ($(X)+(-.7, .3)$) {t}; %
+  \draw[->] (X) -- (Y);
+  \draw[->] (Y) -- ++(1, 0);
+  \node[label] at ($(Y)+(.7, .3)$) {t}; %
+  \draw[->] (Y) -- ++(0,-1) -- ++(-0.4,0) -- (C);
+  \node[label] at ($(Y)+(.3, -.7)$) {f}; %
+  \draw[->] (C.west) -- ++(-.5, 0) coordinate (temp) -- (X);
+  \node[label] at ($(X)+(-.3, -.7)$) {f};
+  \node[code] at ($(C)+(0, -.9)$) {$\bullet$from X loop C until Y};
+
+  \node[labelA] at ($(Y)+(1.5, -.5)$) {$\xrightarrow{\textsc{LoopEnter}_\mathrm{ss}}$};
+
+  \node[assert] (X) at (4.9, 0) {X}; %
+  \node[test, right=of X] (Y) {Y};
+  \node[proc] (C) at ($(Y)+(-1, -1)$) {C};
+  \fill (X.east) -- +(+.43, 0) circle (3pt);
+  \draw[->] (X.west) -- ++(-.5, 0) -- (X);
+  \node[label] at ($(X)+(-.7, .3)$) {t}; %
+  \draw[->] (X) -- (Y);
+  \draw[->] (Y) -- ++(1, 0);
+  \node[label] at ($(Y)+(.7, .3)$) {t}; %
+  \draw[->] (Y) -- ++(0,-1) -- ++(-0.4,0) -- (C);
+  \node[label] at ($(Y)+(.3, -.7)$) {f}; %
+  \draw[->] (C.west) -- ++(-.5, 0) coordinate (temp) -- (X);
+  \node[label] at ($(X)+(-.3, -.7)$) {f};
+  \node[code] at ($(C)+(0, -.9)$) {from X$\bullet$ loop C until Y};
+
+  \node[labelA] at ($(Y)+(1.2, -.5)$) {$\xrightarrow{\textsc{LoopExit}_\mathrm{ss}}$};
+
+  \node[assert] (X) at ($(Y)+(2.5, 0)$) {X}; %
+  \node[test, right=of X] (Y) {Y};
+  \node[proc] (C) at ($(Y)+(-1, -1)$) {C};
+  \fill (Y.east) -- +(+.3, 0) circle (3pt);
+  \draw[->] (X.west) -- ++(-.5, 0) -- (X);
+  \node[label] at ($(X)+(-.7, .3)$) {t}; %
+  \draw[->] (X) -- (Y);
+  \draw[->] (Y) -- ++(1.3, 0);
+  \node[label] at ($(Y)+(.7, .3)$) {t}; %
+  \draw[->] (Y) -- ++(0,-1) -- ++(-0.4,0) -- (C);
+  \node[label] at ($(Y)+(.3, -.7)$) {f}; %
+  \draw[->] (C.west) -- ++(-.5, 0) coordinate (temp) -- (X);
+  \node[label] at ($(X)+(-.3, -.7)$) {f};
+  \node[code] at ($(C)+(0, -.9)$) {from X loop C until Y$\bullet$};
+
+  \node[labelA] at ($(X)+(-1.4, -1.7)$) {\rotatebox{-30}{$\xrightarrow{\textsc{LoopIter1}_\mathrm{ss}}$}};
+
+  \node[assert] (X) at ($(X)+(-1.75, -2.8)$) {X}; %
+  \node[test, right=of X] (Y) {Y};
+  \node[proc] (C) at ($(Y)+(-1, -1)$) {C};
+  \fill (C.east) -- +(+.5, 0) circle (3pt);
+  \draw[->] (X.west) -- ++(-.5, 0) -- (X);
+  \node[label] at ($(X)+(-.7, .3)$) {t}; %
+  \draw[->] (X) -- (Y);
+  \draw[->] (Y) -- ++(1, 0);
+  \node[label] at ($(Y)+(.7, .3)$) {t}; %
+  \draw[->] (Y) -- ++(0,-1) -- ++(-0.4,0) -- (C);
+  \node[label] at ($(Y)+(.3, -.7)$) {f}; %
+  \draw[->] (C.west) -- ++(-.5, 0) coordinate (temp) -- (X);
+  \node[label] at ($(X)+(-.3, -.7)$) {f};
+  \node[code] at ($(C)+(0, -.9)$) {from X loop $\bullet$C until Y};
+
+  \node[labelA] at ($(X)+(-3.7, 1.1)$) {\rotatebox{30}{$\xrightarrow{\textsc{LoopIter2}_\mathrm{ss}}$}};
+
+  \node[assert] (X) at ($(X)+(-5.5, 0)$) {X}; %
+  \node[test, right=of X] (Y) {Y};
+  \node[proc] (C) at ($(Y)+(-1, -1)$) {C};
+  \fill (C.west) -- +(-.5, 0) circle (3pt);
+  \draw[->] (X.west) -- ++(-.5, 0) -- (X);
+  \node[label] at ($(X)+(-.7, .3)$) {t}; %
+  \draw[->] (X) -- (Y);
+  \draw[->] (Y) -- ++(1, 0);
+  \node[label] at ($(Y)+(.7, .3)$) {t}; %
+  \draw[->] (Y) -- ++(0,-1) -- ++(-0.4,0) -- (C);
+  \node[label] at ($(Y)+(.3, -.7)$) {f}; %
+  \draw[->] (C.west) -- ++(-.5, 0) coordinate (temp) -- (X);
+  \node[label] at ($(X)+(-.3, -.7)$) {f};
+  \node[code] at ($(C)+(0, -.9)$) {from X loop C$\bullet$ until Y};
+
+  \node[label] at ($(C)+(2.8, .5)$) {$\xleftarrow{\;\t{C}\;}$};
+\end{tikzpicture}
+\end{document}

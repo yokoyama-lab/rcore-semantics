@@ -1,0 +1,42 @@
+% Adapted from [MaYo26].  Regenerate: see README.md in this directory.
+\documentclass[border=6pt,varwidth=17cm]{standalone}
+\input{preamble}
+\begin{document}
+\begin{tabular}[b]{@{}c@{}}\begin{tikzpicture}[scale=0.85, transform shape]
+  \node[proc] (C) at (0, 0) {C}; %
+  \node[proc] (D) at ($(C)+(1.5, 0)$) {D};
+  \draw[->] (-1, 0) -- (C);
+  \draw[->] (C) -- (D);
+  \draw[->] (D) -- ++(1, 0);
+
+  \node[code] at ($(C)+(.75, -.9)$) {\texttt{C; D}};
+\end{tikzpicture}\\[2pt] \small (a) Sequence\end{tabular}
+\hfill
+\begin{tabular}[b]{@{}c@{}}\begin{tikzpicture}[scale=0.85, transform shape]
+  \node[assert] (X) at (0, 0) {X}; %
+  \node[test, right=of X] (Y) {Y};
+  \node[proc] (C) at ($(Y)+(-1, -1)$) {C};
+  \draw[->] (-1, 0) -- (X);
+  \node[label] at ($(X)+(-.7, .3)$) {t}; %
+  \draw[->] (X) -- (Y);
+  \draw[->] (Y) -- ++(1, 0);
+  \node[label] at ($(Y)+(.7, .3)$) {t}; %
+  \draw[->] (Y) -- ++(0,-1) -- ++(-0.4,0) -- (C);
+  \node[label] at ($(Y)+(.3, -.7)$) {f}; %
+  \draw[->] (C.west) -- ++(-.5, 0) coordinate (temp) -- (X);
+  \node[label] at ($(X)+(-.3, -.7)$) {f};
+
+  \node[code] at ($(C)+(0, -.9)$) {\texttt{from X loop C until Y}};
+\end{tikzpicture}\\[2pt] \small (b) Reversible loop\end{tabular}
+\hfill
+\begin{tabular}[b]{@{}c@{}}\begin{tikzpicture}[scale=0.85, transform shape]
+  \node[terminal] (start) at (0,0) {\t{read X}};
+  \node[proc,right=of start] (proc) at (0,0) {C};
+  \node[terminal, right=of proc] (stop) at (1.4,0) {\t{write X}};
+
+  \draw[->] (start) -- (proc);
+  \draw[->] (proc) -- (stop);
+
+  \node[code] at ($(proc)+(0, -.9)$) {\texttt{read X; C; write X}};
+\end{tikzpicture}\\[2pt] \small (c) Structured terminals\end{tabular}
+\end{document}

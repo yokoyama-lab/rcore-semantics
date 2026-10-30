@@ -88,6 +88,10 @@ The last block, *Also in the same file*, is here on purpose.  `proofs.v` is
 considerably larger than the results the letter states, and this is what the
 rest of it is; its size is not the price of those theorems.
 
+A guided reading of the proof of Theorem 3, with the relevant figures of the
+RC 2026 paper redrawn, is in [docs/theorem3-proof.md](docs/theorem3-proof.md)
+([日本語版](docs/theorem3-proof_ja.md)).
+
 | Result | RC 2026 | Identifier in `proofs.v` |
 |---|---|---|
 | **Determinism** | | |
