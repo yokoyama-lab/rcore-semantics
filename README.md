@@ -106,6 +106,8 @@ rest of it is; its size is not the price of those theorems.
 | &nbsp;&nbsp;&nbsp;&nbsp;the printed ss is stuck where the amended rule moves | Theorem 1 | `rc2026_theorem1_fails_as_printed_full` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;from the assignment rules alone | Theorem 1 | `rc2026_theorem1_fails_as_printed` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the printed ss rules, transcribed | Fig. 9b | `ss_paper_asn`, `ss_paper_loop`, `ss_paper` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the witnesses stay stuck modulo the congruence | Eq. (7) | `gap_witness_paper_cong_stuck`, `gap_witness2_paper_cong_stuck` |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the class of a pre-assignment is a singleton | — | `cc_cong_at_pre_asn` |
 | &nbsp;&nbsp;&nbsp;&nbsp;the printed ds rules, transcribed | Fig. 2c | `ds_paper`, `loop_paper` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its side condition is the domain of ⊙ | Fig. 2c | `ds_paper_side_iff_odot` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;so on assignments it is our `Asn_ds` | Fig. 2c | `ds_paper_asn_agrees` |
