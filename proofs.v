@@ -87,6 +87,16 @@ Inductive val : Type :=
 Fixpoint val_eq_dec (v1 v2 : val) : {v1 = v2} + {v1 <> v2}.
 Proof. decide equality. Defined.
 
+(* The paper's truth values: [t] is [(nil.nil)] and [f] is [nil]. *)
+Definition Vt : val := Vpair Vnil Vnil.
+
+(* A guard [= t] and a guard [= f] on the same value exclude each other. *)
+Ltac vt_clash :=
+  match goal with
+  | H1 : ?a = Vt, H2 : ?a = Vnil |- _ => rewrite H1 in H2; discriminate H2
+  | H1 : ?a = Vnil, H2 : ?a = Vt |- _ => rewrite H1 in H2; discriminate H2
+  end.
+
 Inductive expr : Type :=
   | Evar  (x : var)
   | Enil
@@ -228,10 +238,10 @@ Inductive exec_ss : cont_cmd * store -> cont_cmd * store -> Prop :=
       exec_ss (CC_at_pre  (Cass x e), s)
            (CC_at_post (Cass x e), update s x v_new)
   | S_LoopEnter : forall x c y s,
-      s x <> Vnil ->
+      s x = Vt ->
       exec_ss (CC_at_pre (Cloop x c y), s) (CC_mid_loop x c y, s)
   | S_LoopExit  : forall x c y s,
-      s y <> Vnil ->
+      s y = Vt ->
       exec_ss (CC_mid_loop x c y, s) (CC_at_post (Cloop x c y), s)
   | S_LoopIter1 : forall x c y s,
       s y = Vnil ->
@@ -371,7 +381,7 @@ Theorem ss_step_deterministic :
 Proof.
   intros cfg cfg1 cfg2 H1; revert cfg2.
   induction H1; intros cfg2 H2; inversion H2; subst;
-    try reflexivity; try contradiction; try kill_post; try use_IH.
+    try reflexivity; try contradiction; try vt_clash; try kill_post; try use_IH.
   (* Only S_Asn vs. S_Asn remains: unify v_e and v_new. *)
   match goal with
   | [ He : eval_expr ?s ?e = Some _ |- _ ] =>
@@ -588,6 +598,7 @@ Proof.
   induction H1; intros cfg2 Hwf1 Hwf2 H2; simpl in *; inversion H2; subst;
     try reflexivity;
     try contradiction;
+    try vt_clash;
     try kill_post;
     try kill_step_to_at_pre.
   - (* S_Asn vs. S_Asn.  Recover the post-store equation [update s0 x v_new0
@@ -777,13 +788,13 @@ Inductive exec_ds : cmd -> store -> store -> Prop :=
       exec_ds c1 s s1 -> exec_ds c2 s1 s2 ->
       exec_ds (Cseq c1 c2) s s2
   | D_Loop : forall x c y s s',
-      s x <> Vnil ->          (* entry assertion: X is true *)
+      s x = Vt ->             (* entry assertion: X is true *)
       loop_sem x c y s s' ->
       exec_ds (Cloop x c y) s s'
 
 with loop_sem : var -> cmd -> var -> store -> store -> Prop :=
   | L_Base : forall x c y s,
-      s y <> Vnil ->          (* exit test: Y is true *)
+      s y = Vt ->             (* exit test: Y is true *)
       loop_sem x c y s s
   | L_Rec  : forall x c y s s1 s2,
       s y = Vnil ->           (* Y is false: enter body *)
@@ -1332,7 +1343,7 @@ Inductive fstep : ctrl_flow * store -> ctrl_flow * store -> Prop :=
       fstep (CF_pre (F_step x e F), s)
             (CF_pre F, update s x v_new)
   | FS_AssertT : forall x body y rest s,
-      s x <> Vnil ->
+      s x = Vt ->
       fstep (CF_pre (F_loop x body y rest), s)
             (CF_mid x body y rest, s)
   | FS_AssertF : forall x body y rest s,
@@ -1340,7 +1351,7 @@ Inductive fstep : ctrl_flow * store -> ctrl_flow * store -> Prop :=
       fstep (CF_in_loop x body (CF_pre F_nil) y rest, s)
             (CF_mid x body y rest, s)
   | FS_TestT : forall x body y rest s,
-      s y <> Vnil ->
+      s y = Vt ->
       fstep (CF_mid x body y rest, s) (CF_pre rest, s)
   | FS_TestF : forall x body y rest s,
       s y = Vnil ->
@@ -1950,20 +1961,19 @@ Fixpoint eval_cmd_fuel (fuel : nat) (c : cmd) (s : store) : option store :=
         | None => None
         end
     | Cloop x c y =>
-        (* Entry assertion: s x must be non-Vnil. *)
-        match s x with
-        | Vnil => None
-        | _    => eval_loop_fuel f x c y s
-        end
+        (* Entry assertion: s x must be t. *)
+        if val_eq_dec (s x) Vt then eval_loop_fuel f x c y s else None
     end
   end
 with eval_loop_fuel (fuel : nat) (x : var) (c : cmd) (y : var) (s : store) : option store :=
   match fuel with
   | 0 => None
   | S f =>
+    if val_eq_dec (s y) Vt then Some s      (* Y is t: exit loop *)
+    else
     match s y with
     | Vnil =>
-        (* Y is false: run the body, then assert X = Vnil before next iter. *)
+        (* Y is f: run the body, then assert X = Vnil before next iter. *)
         match eval_cmd_fuel f c s with
         | Some s1 =>
             match s1 x with
@@ -1972,7 +1982,7 @@ with eval_loop_fuel (fuel : nat) (x : var) (c : cmd) (y : var) (s : store) : opt
             end
         | None => None
         end
-    | _    => Some s     (* Y is true: exit loop *)
+    | _    => None       (* Y is neither t nor f: stuck *)
     end
   end.
 
@@ -2005,17 +2015,18 @@ Proof.
       destruct (eval_cmd_fuel f c1 s) as [s1|] eqn:Hc1; [|discriminate].
       apply IHc in Hc1. apply IHc in H. eapply D_Seq; eassumption.
     + (* Cloop *)
-      destruct (s x) eqn:Hx; [discriminate|].
-      apply IHl in H. apply D_Loop; [|exact H]. rewrite Hx. discriminate.
+      destruct (val_eq_dec (s x) Vt) as [Hx|Hx]; [|discriminate].
+      apply IHl in H. apply D_Loop; [exact Hx|exact H].
   - destruct IH as [IHc IHl].
-    destruct (s y) eqn:Hy.
-    + (* Y is false: body executes, recurse. *)
+    destruct (val_eq_dec (s y) Vt) as [Hy|Hy].
+    + (* Y is t: exit. *)
+      injection H as <-. apply L_Base. exact Hy.
+    + (* Y is f: body executes, recurse. *)
+      destruct (s y) eqn:Hsy; [|discriminate].
       destruct (eval_cmd_fuel f c s) as [s1|] eqn:Hbody; [|discriminate].
       destruct (s1 x) eqn:Hxn; [|discriminate].
       apply IHc in Hbody. apply IHl in H.
       eapply L_Rec with (s1 := s1); eassumption.
-    + (* Y is true: exit. *)
-      injection H as <-. apply L_Base. rewrite Hy. discriminate.
 Qed.
 
 Theorem eval_cmd_sound :
@@ -2051,16 +2062,16 @@ Proof.
       rewrite (IHc _ _ _ Hc1).
       apply (IHc _ _ _ H).
     + (* Cloop *)
-      destruct (s x) eqn:Hx; [discriminate|];
+      destruct (val_eq_dec (s x) Vt); [|discriminate];
         destruct (IH f' ltac:(lia)) as [_ IHl];
         apply (IHl _ _ _ _ _ H).
   - destruct fuel' as [|f']; [lia|]. simpl in *.
-    destruct (s y) eqn:Hy.
-    + destruct (eval_cmd_fuel f c s) as [s1|] eqn:Hbody; [|discriminate].
-      destruct (s1 x) eqn:Hxn; [|discriminate].
-      destruct (IH f' ltac:(lia)) as [IHc IHl].
-      rewrite (IHc _ _ _ Hbody). rewrite Hxn. apply (IHl _ _ _ _ _ H).
-    + exact H.
+    destruct (val_eq_dec (s y) Vt) as [Hy|Hy]; [exact H|].
+    destruct (s y) eqn:Hsy; [|discriminate].
+    destruct (eval_cmd_fuel f c s) as [s1|] eqn:Hbody; [|discriminate].
+    destruct (s1 x) eqn:Hxn; [|discriminate].
+    destruct (IH f' ltac:(lia)) as [IHc IHl].
+    rewrite (IHc _ _ _ Hbody). rewrite Hxn. apply (IHl _ _ _ _ _ H).
 Qed.
 
 Lemma eval_cmd_fuel_mono :
@@ -2094,11 +2105,12 @@ Proof.
     rewrite H1. exact H2.
   - (* D_Loop *) intros x c y s s' Hx _ [fl IHloop].
     exists (S fl). simpl.
-    destruct (s x); [contradiction|exact IHloop].
+    destruct (val_eq_dec (s x) Vt); [exact IHloop|contradiction].
   - (* L_Base *) intros x c y s Hy.
-    exists 1. simpl. destruct (s y); [contradiction|reflexivity].
+    exists 1. simpl. destruct (val_eq_dec (s y) Vt); [reflexivity|contradiction].
   - (* L_Rec *) intros x c y s s1 s2 Hyf _ [fb IHbody] Hxn _ [fl IHloop].
     exists (S (Nat.max fb fl)). simpl.
+    destruct (val_eq_dec (s y) Vt) as [Hy|_]; [rewrite Hyf in Hy; discriminate|].
     rewrite Hyf.
     pose proof (@eval_cmd_fuel_mono fb (Nat.max fb fl) c s s1 ltac:(lia) IHbody) as Hb.
     pose proof (@eval_loop_fuel_mono fl (Nat.max fb fl) x c y s1 s2 ltac:(lia) IHloop) as Hl.
@@ -2157,7 +2169,7 @@ Inductive loop_iters : var -> cmd -> var -> store -> store -> Prop :=
 
 Lemma loop_sem_iff_iters :
   forall x c y s s',
-    loop_sem x c y s s' <-> (loop_iters x c y s s' /\ s' y <> Vnil).
+    loop_sem x c y s s' <-> (loop_iters x c y s s' /\ s' y = Vt).
 Proof.
   intros. split.
   - induction 1.
@@ -2199,11 +2211,11 @@ Proof.
     eapply loop_iters_snoc; eauto.
 Qed.
 
-(* Inverse for loop_sem (needs the outer entry assertion s x <> Vnil). *)
+(* Inverse for loop_sem (needs the outer entry assertion s x = Vt). *)
 Lemma loop_sem_inv :
   forall x c y s s',
     loop_sem x c y s s' ->
-    s x <> Vnil ->
+    s x = Vt ->
     (forall s0 s0', exec_ds c s0 s0' -> exec_ds (inv c) s0' s0) ->
     loop_sem y (inv c) x s' s.
 Proof.
@@ -2252,7 +2264,7 @@ Proof.
     inversion Hwf as [| |x_ c_ y_ Hwfc]; subst.
     inversion H as [| |x_ c_ y_ s_ s'_ Hx Hloop]; subst.
     simpl. apply D_Loop.
-    + (* Need: s' y <> Vnil.  From loop_sem exit invariant. *)
+    + (* Need: s' y = Vt.  From loop_sem exit invariant. *)
       apply loop_sem_iff_iters in Hloop. destruct Hloop as [_ Hexit]. exact Hexit.
     + eapply loop_sem_inv; try eassumption.
       intros s0 s0' Hbody. apply IHc; assumption.
@@ -2633,7 +2645,7 @@ Theorem fstep_forward_deterministic :
 Proof.
   intros cfg cfg1 cfg2 H1. revert cfg2.
   induction H1; intros cfg2 H2; inversion H2; subst;
-    try reflexivity; try congruence.
+    try reflexivity; try congruence; try vt_clash.
   - (* FS_AssertF vs FS_Ctx: the inner token is at CF_pre F_nil, stuck *)
     match goal with
     | [ Hin : fstep (CF_pre F_nil, _) _ |- _ ] =>
@@ -2697,8 +2709,8 @@ Proof.
     assert (Hupd : update cex_store X0 Vnil = cex_store) by reflexivity.
     rewrite <- Hupd at 2.
     apply FS_Asn with (v_e := Vnil); reflexivity.
-  - (* the loop exit fires: cex_store X1 <> Vnil *)
-    apply FS_TestT. discriminate.
+  - (* the loop exit fires: cex_store X1 = t *)
+    apply FS_TestT. reflexivity.
   - discriminate.
 Qed.
 
@@ -2974,8 +2986,8 @@ Proof.
     inversion Hp1; subst; inversion Hp2; subst.
     eapply fss_step_loop_absurd; eauto.
   - (* FS_AssertT vs FS_AssertT *) reflexivity.
-  - (* FS_AssertT vs FS_AssertF *) congruence.
-  - (* FS_AssertF vs FS_AssertT *) congruence.
+  - (* FS_AssertT vs FS_AssertF *) vt_clash.
+  - (* FS_AssertF vs FS_AssertT *) vt_clash.
   - (* FS_AssertF vs FS_AssertF *) reflexivity.
   - (* FS_TestT vs FS_Asn *)
     inversion Hp1; subst; inversion Hp2; subst.
@@ -3823,14 +3835,15 @@ Print Assumptions rc2026_theorem1_fails_as_printed.
 (*  and [f], where [f] abbreviates [nil] and [t] abbreviates          *)
 (*  [(nil.nil)] (p. 204).  Since the data domain is all binary trees  *)
 (*  over [nil], a variable can hold a value that is neither, and on   *)
-(*  such a value the printed rules are stuck.  Our guards test only   *)
-(*  whether a variable is [nil], so they agree with the printed ones  *)
-(*  on [t] and [f] and additionally cover the remaining values.       *)
-(*  The witness store is not contrived: a two-line well-formed        *)
+(*  such a value the printed rules are stuck, as the loop of          *)
+(*  [GlYo17] is undefined when X does not hold the required value.    *)
+(*  Our guards are the printed ones, so the loop rules of [exec_ss]   *)
+(*  are exactly those of Fig. 9b: [loop_rules_as_printed].  The store *)
+(*  on which both are stuck is not contrived: a two-line well-formed  *)
 (*  R-CORE program reaches it from the all-nil store.                 *)
 (* ----------------------------------------------------------------- *)
 
-Definition Vt : val := Vpair Vnil Vnil.  (* the paper's [t]; [f] is [Vnil] *)
+(* [Vt] is defined in Sect. 1, next to [val]. *)
 
 (* The printed loop rules, transcribed with their [t]/[f] guards. *)
 Inductive ss_paper_loop : cont_cmd * store -> cont_cmd * store -> Prop :=
@@ -3865,25 +3878,27 @@ Proof.
   - apply D_Asn with (v_e := Vpair Vt Vnil); reflexivity.
 Qed.
 
-Example loop_gap_ss : forall c,
-  exec_ss (CC_at_pre (Cloop X0 c X1), odd_store)
-          (CC_mid_loop X0 c X1, odd_store).
-Proof. intro c; apply S_LoopEnter; discriminate. Qed.
+Example loop_odd_store_stuck : forall c t,
+  ~ exec_ss (CC_at_pre (Cloop X0 c X1), odd_store) t.
+Proof. intros c t H; inversion H; subst; discriminate. Qed.
 
 Example loop_gap_paper_stuck : forall c t,
   ~ ss_paper_loop (CC_at_pre (Cloop X0 c X1), odd_store) t.
 Proof. intros c t H; inversion H; subst; discriminate. Qed.
 
-Theorem rc2026_loop_guards_are_stricter :
-  exists x c y s,
-    (forall t, ~ ss_paper_loop (CC_at_pre (Cloop x c y), s) t) /\
-    exec_ss (CC_at_pre (Cloop x c y), s) (CC_mid_loop x c y, s).
+(* Every loop step of [exec_ss] is a step of the printed loop rules:
+   from each of the three loop positions, ours and Fig. 9b coincide. *)
+Theorem loop_rules_as_printed :
+  forall cc s t,
+    (exists x c y, cc = CC_at_pre (Cloop x c y) \/ cc = CC_mid_loop x c y \/
+                   cc = CC_in_loop x (CC_at_post c) y) ->
+    exec_ss (cc, s) t -> ss_paper_loop (cc, s) t.
 Proof.
-  exists X0, (X5 ^= Enil), X1, odd_store.
-  split; [apply loop_gap_paper_stuck | apply loop_gap_ss].
+  intros cc s t [x [c [y [E | [E | E]]]]] H; subst; inversion H; subst;
+    try kill_post; constructor; assumption.
 Qed.
 
-Print Assumptions rc2026_loop_guards_are_stricter.
+Print Assumptions loop_rules_as_printed.
 
 (* ----------------------------------------------------------------- *)
 (* 41B'. The printed small-step relation as a whole                   *)
@@ -4056,8 +4071,8 @@ Print Assumptions rc2026_printed_fss_moves_where_ss_is_stuck.
 (*  may say that the printed ds "is defined there" on the witnesses.  *)
 (*                                                                    *)
 (*  The loop rules are transcribed with the printed guards, which     *)
-(*  test equality with [t] rather than difference from [nil]; ours    *)
-(*  extend them, exactly as for the printed ss loop guards.           *)
+(*  test equality with [t]; ours are the same, as for the printed ss  *)
+(*  loop guards.                                                      *)
 (*                                                                    *)
 (*  One reading is inherited and remains ours, not the paper's: the   *)
 (*  paper writes the store as [s + {X -> d}] and evaluates E in [s],  *)
@@ -4154,19 +4169,22 @@ Proof.
                gap_witness_paper_ss_stuck, gap_witness_paper_fss_moves.
 Qed.
 
-(* The printed ds loop guard is stricter than ours in the same way the
-   printed ss loop guard is: it demands [t], not merely "not nil". *)
-Example ds_paper_loop_guard_is_stricter :
-  forall c y s, s X0 <> Vnil -> s X0 <> Vt ->
-    ~ (exists s', ds_paper (Cloop X0 c y) s s').
-Proof. intros c y s _ Hne [s' H]; inversion H; subst; congruence. Qed.
+(* The printed ds loop guard is ours: both demand [t] on entry, so a
+   loop entered with any other value is undefined in both. *)
+Example ds_loop_guard_as_printed :
+  forall c y s, s X0 <> Vt ->
+    ~ (exists s', ds_paper (Cloop X0 c y) s s') /\
+    ~ (exists s', exec_ds (Cloop X0 c y) s s').
+Proof.
+  intros c y s Hne; split; intros [s' H]; inversion H; subst; contradiction.
+Qed.
 
 Print Assumptions ds_paper_side_iff_odot.
 Print Assumptions ds_paper_asn_agrees.
 Print Assumptions gap_witness_paper_ds.
 Print Assumptions gap_witness2_paper_ds.
 Print Assumptions rc2026_theorem1_fails_as_printed_all_printed.
-Print Assumptions ds_paper_loop_guard_is_stricter.
+Print Assumptions ds_loop_guard_as_printed.
 
 (* ----------------------------------------------------------------- *)
 (* 41B'''. Which store the printed rules evaluate E in                *)
@@ -4403,6 +4421,61 @@ Print Assumptions cong_iff_admin.
 Print Assumptions cc_cong_erase.
 Print Assumptions cc_cong_preserves_wf.
 
+(* ----------------------------------------------------------------- *)
+(* 41C'. The witnesses stay stuck modulo the congruence               *)
+(*                                                                    *)
+(*  [ss_paper] (41B') has no rules for [;]: the paper moves the token *)
+(*  across [;] by the congruence, and reads [->] modulo it (p. 210).  *)
+(*  Sect. 41B' argued in prose that this cannot unblock the witnesses *)
+(*  because they contain no [;].  This makes the argument a theorem:  *)
+(*  the congruence class of a pre-assignment is a singleton, so the   *)
+(*  printed ss read modulo [cc_cong] is stuck on both witnesses too.  *)
+(* ----------------------------------------------------------------- *)
+
+(* The printed ss read modulo the congruence: a step of [ss_paper]
+   bracketed by [cc_cong] on both sides. *)
+Inductive ss_paper_cong : cont_cmd * store -> cont_cmd * store -> Prop :=
+  | SPC_step : forall cc1 cc1' cc2' cc2 (s s' : store),
+      cc_cong cc1 cc1' ->
+      ss_paper (cc1', s) (cc2', s') ->
+      cc_cong cc2' cc2 ->
+      ss_paper_cong (cc1, s) (cc2, s').
+
+Lemma cc_cong_at_pre_asn_iff : forall x e cc1 cc2,
+    cc_cong cc1 cc2 ->
+    (cc1 = CC_at_pre (Cass x e) <-> cc2 = CC_at_pre (Cass x e)).
+Proof.
+  intros x e cc1 cc2 H; induction H; split; intro E;
+    try discriminate; try tauto.
+Qed.
+
+Lemma cc_cong_at_pre_asn : forall x e cc,
+    cc_cong (CC_at_pre (Cass x e)) cc -> cc = CC_at_pre (Cass x e).
+Proof.
+  intros x e cc H. apply (cc_cong_at_pre_asn_iff x e H). reflexivity.
+Qed.
+
+Example gap_witness_paper_cong_stuck :
+  forall t, ~ ss_paper_cong (CC_at_pre (X0 ^= Enil), nil_store) t.
+Proof.
+  intros t H; inversion H as [cc1 cc1' cc2' cc2 s s' Hc Hp _]; subst.
+  apply cc_cong_at_pre_asn in Hc; subst.
+  exact (gap_witness_paper_ss_stuck Hp).
+Qed.
+
+Example gap_witness2_paper_cong_stuck :
+  forall t, ~ ss_paper_cong (CC_at_pre (X0 ^= Eeq X1 X2), neq_store) t.
+Proof.
+  intros t H; inversion H as [cc1 cc1' cc2' cc2 s s' Hc Hp _]; subst.
+  apply cc_cong_at_pre_asn in Hc; subst.
+  exact (gap_witness2_paper_ss_stuck Hp).
+Qed.
+
+Print Assumptions cc_cong_at_pre_asn_iff.
+Print Assumptions cc_cong_at_pre_asn.
+Print Assumptions gap_witness_paper_cong_stuck.
+Print Assumptions gap_witness2_paper_cong_stuck.
+
 (* ================================================================= *)
 (* 41D. Determinism of the PRINTED rules, an executable stepper,      *)
 (*      where the amended rules are stuck, halting, and the inverter  *)
@@ -4524,12 +4597,13 @@ Fixpoint step_fun (cc : cont_cmd) (s : store) : option (cont_cmd * store) :=
       end
   | CC_at_pre (Cseq c1 c2)  => Some (CC_seq_L (CC_at_pre c1) c2, s)
   | CC_at_pre (Cloop x c y) =>
-      if val_eq_dec (s x) Vnil then None else Some (CC_mid_loop x c y, s)
+      if val_eq_dec (s x) Vt then Some (CC_mid_loop x c y, s) else None
   | CC_at_post _ => None
   | CC_mid_loop x c y =>
-      if val_eq_dec (s y) Vnil
+      if val_eq_dec (s y) Vt then Some (CC_at_post (Cloop x c y), s)
+      else if val_eq_dec (s y) Vnil
       then Some (CC_in_loop x (CC_at_pre c) y, s)
-      else Some (CC_at_post (Cloop x c y), s)
+      else None
   | CC_seq_L cc1 c2 =>
       match cc1 with
       | CC_at_post c1 => Some (CC_seq_R c1 (CC_at_pre c2), s)
@@ -4569,12 +4643,13 @@ Proof.
         destruct (odot (s x) v_e) as [v_new|] eqn:Ho; [| discriminate].
         injection H; intros; subst; eapply S_Asn; eauto.
       * injection H; intros; subst; apply S_Seq_Enter.
-      * destruct (val_eq_dec (s x) Vnil) as [Hx|Hx]; [discriminate |].
+      * destruct (val_eq_dec (s x) Vt) as [Hx|Hx]; [| discriminate].
         injection H; intros; subst; apply S_LoopEnter; exact Hx.
     + discriminate.
-    + destruct (val_eq_dec (s y) Vnil) as [Hy|Hy];
-        injection H; intros; subst;
-        [apply S_LoopIter1; exact Hy | apply S_LoopExit; exact Hy].
+    + destruct (val_eq_dec (s y) Vt) as [Hy|Hy].
+      * injection H; intros; subst; apply S_LoopExit; exact Hy.
+      * destruct (val_eq_dec (s y) Vnil) as [Hy'|Hy']; [| discriminate].
+        injection H; intros; subst; apply S_LoopIter1; exact Hy'.
     + destruct cc1; try (injection H; intros; subst; apply S_Seq_Mid);
         destruct (step_fun _ s) as [[cc1' s']|] eqn:Hs; try discriminate;
         injection H; intros; subst; apply S_Ctx_Seq_L, IH1; first [exact Hs | reflexivity].
@@ -4591,9 +4666,10 @@ Proof.
     induction H; intros cc0 s0 E; inversion E; subst; simpl;
       try reflexivity.
     + rewrite H, H0; reflexivity.
-    + destruct (val_eq_dec (s0 x) Vnil) as [Hx|Hx]; [contradiction | reflexivity].
-    + destruct (val_eq_dec (s0 y) Vnil) as [Hy|Hy]; [contradiction | reflexivity].
-    + destruct (val_eq_dec (s0 y) Vnil) as [Hy|Hy]; [reflexivity | contradiction].
+    + destruct (val_eq_dec (s0 x) Vt) as [Hx|Hx]; [reflexivity | contradiction].
+    + destruct (val_eq_dec (s0 y) Vt) as [Hy|Hy]; [reflexivity | contradiction].
+    + destruct (val_eq_dec (s0 y) Vt) as [Hy|Hy]; [vt_clash |].
+      destruct (val_eq_dec (s0 y) Vnil) as [Hy'|Hy']; [reflexivity | contradiction].
     + destruct (val_eq_dec (s0 x) Vnil) as [Hx|Hx]; [reflexivity | contradiction].
     + destruct cc; try (rewrite (IHexec_ss _ _ eq_refl); reflexivity).
       exfalso; eapply no_step_from_at_post; eauto.
@@ -5297,9 +5373,9 @@ Print Assumptions gap_witness2_paper_stuck.
 Print Assumptions rc2026_theorem1_fails_as_printed.
 Print Assumptions odd_store_wf.
 Print Assumptions odd_store_reachable.
-Print Assumptions loop_gap_ss.
+Print Assumptions loop_odd_store_stuck.
 Print Assumptions loop_gap_paper_stuck.
-Print Assumptions rc2026_loop_guards_are_stricter.
+Print Assumptions loop_rules_as_printed.
 Print Assumptions gap_witness_paper_ss_stuck.
 Print Assumptions gap_witness2_paper_ss_stuck.
 Print Assumptions rc2026_theorem1_fails_as_printed_full.
@@ -5319,7 +5395,7 @@ Print Assumptions ds_paper_asn_agrees.
 Print Assumptions gap_witness_paper_ds.
 Print Assumptions gap_witness2_paper_ds.
 Print Assumptions rc2026_theorem1_fails_as_printed_all_printed.
-Print Assumptions ds_paper_loop_guard_is_stricter.
+Print Assumptions ds_loop_guard_as_printed.
 Print Assumptions nf_expr_implies_eval_indep.
 Print Assumptions eval_readings_agree_on_wf.
 Print Assumptions eval_readings_differ_without_wf.
@@ -5362,3 +5438,7 @@ Print Assumptions prog_inv_involutive.
 Print Assumptions wf_prog_inv.
 Print Assumptions prog_denot_injective.
 Print Assumptions printed_rules_are_included.
+Print Assumptions cc_cong_at_pre_asn_iff.
+Print Assumptions cc_cong_at_pre_asn.
+Print Assumptions gap_witness_paper_cong_stuck.
+Print Assumptions gap_witness2_paper_cong_stuck.

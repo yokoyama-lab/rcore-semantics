@@ -11,7 +11,7 @@
    [step_fun]/[steps_n] iterated to a fixed point (= exec_ss by
    [step_fun_correct]).  The expectations checked at the end are the
    ones proved in proofs.v: gap_witness_ds (l.3765), gap_witness2_ds
-   (l.3791), odd_store_reachable (l.3860), loop_gap_ss (l.3867),
+   (l.3791), odd_store_reachable, loop_odd_store_stuck (Sect. 41B),
    step_fun_on_gap_witness (l.4801), wf_cc_dec_rejects (l.4380) and
    ss_asn_stuck_iff (odot undefined => stuck). *)
 
@@ -106,16 +106,18 @@ let () =
   ignore (witness "gap_witness2: X0 ^= =? X1 X2 at neq_store" gw2 neq_store
             ~wf:true ~expect:(Some neq_store));
 
-  (* Witness 3: the loop of rc2026_loop_guards_are_stricter at odd_store,
-     l.3851-3885; first check odd_store_reachable (l.3860). *)
+  (* Witness 3: a loop at odd_store, where the guard holds a value that is
+     neither t nor f.  The guards are the printed ones (= t), so ds is
+     undefined and ss is stuck: loop_odd_store_stuck (Sect. 41B).  First
+     check odd_store_reachable. *)
   let build = Cseq (Cass (x1, Eeq (x2, x3)), Cass (x0, Econs (x1, x4))) in
   ignore (witness "odd_store_reachable: X1 ^= =? X2 X3; X0 ^= cons X1 X4" build nil_store
             ~wf:true ~expect:(Some odd_store));
   let lp = Cloop (x0, Cass (x5, Enil), x1) in
   ignore (witness "odd loop: from X0 loop X5 ^= nil until X1 at odd_store" lp odd_store
-            ~wf:true ~expect:(Some odd_store));
+            ~wf:true ~expect:None);
   ignore (witness "odd loop inverted (inv): from X1 loop X5 ^= nil until X0" (inv lp) odd_store
-            ~wf:true ~expect:(Some odd_store));
+            ~wf:true ~expect:None);
   (* control: the same loop with X0 = t exactly *)
   ignore (witness "control loop_t: same loop at {X0=t, X1=t}" lp (update t_store x1 vt)
             ~wf:true ~expect:(Some (update t_store x1 vt)));

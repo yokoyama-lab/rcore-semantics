@@ -13,8 +13,8 @@ build recipe and runner: `difftest/`.  Stores list non-nil variables only;
 |---|---|---|---|---|---|
 | **W1** `X0 ^= nil` at `nil_store` (`gap_witness`, l.3762) | ds defined, store unchanged (`gap_witness_paper_ds` l.4124) / ss **STUCK**: neither AsnSet nor AsnClear fires (l.3779, l.3916) | unchanged (`gap_witness_ds` l.3765, `gap_witness_ss` l.3771) | `nil` (exit 0) -- `Nil -> update x v'`, Eval.hs:53-54 | `nil` (exit 0) -- `vy = VNil -> (y, vx)`, EvalRcore.ml:28-29 | `Some (post, nil_store)` (`step_fun_on_gap_witness` l.4801) |
 | **W2** `X0 ^= =? X1 X2` at `neq_store` = {X2=t} (`gap_witness2`, l.3786) | ds defined, unchanged (l.4131) / ss **STUCK** (l.3797, l.3924) | unchanged (`gap_witness2_ds` l.3791) | `(nil.nil)` = X2, exit 0 | `(nil . nil)`, exit 0 | `Some (post, neq_store)`: `eval_expr` = `Some Vnil`, `odot Vnil Vnil` = `Some Vnil` (l.4517-4520, hand-evaluated) |
-| **W3** `from X0 loop X5 ^= nil until X1` at `odd_store` = {X0=((nil.nil).nil), X1=t} (l.3851, reached by l.3860) | ds **UNDEFINED**: `PD_Loop` needs `X0 = t` (l.4077, `ds_paper_loop_guard_is_stricter` l.4159) / ss **STUCK** at entry (`loop_gap_paper_stuck` l.3873) | enter (`loop_gap_ss` l.3867), exit at once (`S_LoopExit`, X1 <> nil): unchanged, output `((nil.nil).nil)` | `((nil.nil).nil)`, exit 0 -- guards test `/= Nil`, Eval.hs:66, 76 | **ERROR** `Fatal error: exception Failure("Assertion X0 is not true. ")`, exit 2 -- entry test `= vtrue`, EvalRcore.ml:91-93 | `Some (mid_loop, s)` then `Some (post, s)` (l.4524-4530, hand-evaluated) |
-| **W3⁻¹** `from X1 loop X5 ^= nil until X0` at `odd_store` (`inv` of W3; whole inverse program `oddloop_inv.rcore`) | ds **UNDEFINED**, ss enters (X1 = t) then **STUCK** in mid-loop: exit needs `X0 = t`, iteration needs `X0 = nil` (l.3840-3845) | exit at once: unchanged; inverse program outputs `nil` | `nil`, exit 0 | **ERROR** `Assert_failure("EvalRcore.ml", 104, 4)`, exit 2 -- exit test `= vtrue` fails (l.97), body runs, then `assert (X1 = vfalse)` (l.104) | `Some (post, s)` (hand-evaluated) |
+| **W3** `from X0 loop X5 ^= nil until X1` at `odd_store` = {X0=((nil.nil).nil), X1=t} (l.3851, reached by l.3860) | ds **UNDEFINED**: `PD_Loop` needs `X0 = t` (l.4077, `ds_loop_guard_as_printed`) / ss **STUCK** at entry (`loop_gap_paper_stuck`) | same as printed since 2026-10-30 (guards `= t`): ds **UNDEFINED** / ss **STUCK** at entry (`loop_odd_store_stuck`); before, the guards tested `<> nil` and the loop was entered and left at once | `((nil.nil).nil)`, exit 0 -- guards test `/= Nil`, Eval.hs:66, 76 | **ERROR** `Fatal error: exception Failure("Assertion X0 is not true. ")`, exit 2 -- entry test `= vtrue`, EvalRcore.ml:91-93 | `None` (stuck at entry; `witness-test`) |
+| **W3⁻¹** `from X1 loop X5 ^= nil until X0` at `odd_store` (`inv` of W3; whole inverse program `oddloop_inv.rcore`) | ds **UNDEFINED**, ss enters (X1 = t) then **STUCK** in mid-loop: exit needs `X0 = t`, iteration needs `X0 = nil` (l.3840-3845) | same as printed since 2026-10-30: **STUCK** in mid-loop | `nil`, exit 0 | **ERROR** `Assert_failure("EvalRcore.ml", 104, 4)`, exit 2 -- exit test `= vtrue` fails (l.97), body runs, then `assert (X1 = vfalse)` (l.104) | `None` (`witness-test`) |
 | control `loop_t`: W3 with X0 = t | ds/ss defined | `(nil.nil)` | `(nil.nil)` | `(nil . nil)` | terminal |
 | **W4** `X0 ^= X0` at {X0=t} (not well-formed: `nf_expr_not_self` l.409, `wf_cc_dec_rejects` l.4380; constructed here from `eval_readings_differ_without_wf` l.4213) | paper's text (`E` read in `s`, X ∉ dom s): **UNDEFINED**; the transcriptions read the full store (l.4064, l.202) and clear X0 | X0 cleared: `nil` (`eval_readings_agree_on_wf` l.4207 does not apply) | **ERROR** `in lookupEnv: Variable X0 not found ... Eval.hs:13`, exit 1 -- `eval (ev \`minus\` x) e`, Eval.hs:52 | `nil`, exit 0 -- `evalExp s e` on the full store, EvalRcore.ml:86-87, cleared by l.30-31 | `Some (post, nil_store)`, `wf_cmd_dec` = false |
 | **W4⁻¹** `selfassign_inv.rcore` from `nil` | (as above) | X0 ^= X0 at nil sets nil, not t: inverse program ends with X0 = t ≠ nil | **ERROR** `Variable X0 not found`, exit 1 | **ERROR** `Failure("Some variables are not nil.")`, exit 2 | `Some (post, nil_store)` |
@@ -34,10 +34,11 @@ nil`, clear when `d = e`), which is `odot` (l.214) and `D_Asn` (l.772), and
 neither reproduces the two printed small-step rules of Fig. 9b with their
 `e ≠ nil` / `d ≠ nil` premises; the printed `ss` is the only one of the five
 columns that is stuck there.  On the loop guards (W3, W3⁻¹) the two sit on
-opposite sides: `rcore-haskell` tests `≠ nil` exactly as `S_LoopEnter` /
-`S_LoopExit` do (l.230-235), `rcore-C-ocaml` tests `= t` exactly as
-`P_LoopEnter` / `P_LoopExit` do (l.3837-3842) and fails on a value that is
-neither `t` nor `nil`, forward at entry and backward at exit.  On the store
+opposite sides: `rcore-haskell` tests `≠ nil`, as `S_LoopEnter` /
+`S_LoopExit` did before 2026-10-30, and `rcore-C-ocaml` tests `= t`
+exactly as `P_LoopEnter` / `P_LoopExit` and now `S_LoopEnter` /
+`S_LoopExit` do, and fails on a value that is neither `t` nor `nil`,
+forward at entry and backward at exit.  On the store
 `E` is read in (W4) they again sit on opposite sides, the other way round:
 `rcore-haskell` evaluates `E` in `s` minus `X`, the paper's `s + {X -> d}`,
 and `rcore-C-ocaml` in the whole store, as `eval_expr` does; as
