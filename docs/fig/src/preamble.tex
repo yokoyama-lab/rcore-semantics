@@ -1,0 +1,26 @@
+%% Shared preamble for the figures adapted from [MaYo26]
+%% (T. Makino and T. Yokoyama, RC 2026, LNCS 16626).  Copied from the
+%% authors' own LaTeX source of that paper.
+\usepackage[T1]{fontenc}
+\usepackage{stmaryrd}
+\newcommand{\sem}[1]{\llbracket #1 \rrbracket}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\pagecolor{white}
+\def\pgfsysdriver{pgfsys-dvisvgm.def}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, positioning,calc}
+\tikzset{
+  label/.style={font=\footnotesize, font=\ttfamily},
+  labelA/.style={font=\footnotesize},
+  code/.style={font=\footnotesize, font=\ttfamily, text=gray},
+  proc/.style={rectangle, draw, minimum size=1cm, text centered, dashed, font=\ttfamily},
+  test/.style={diamond, draw, minimum size=1cm, aspect=1, text centered, font=\ttfamily},
+  assert/.style={diamond, draw, minimum size=1cm, text centered, font=\ttfamily},
+  asn/.style={rectangle, draw, minimum size=.5cm, text centered, font=\ttfamily},
+  >=latex,
+  terminal/.style={rectangle, rounded corners, draw, minimum height=6mm, text centered},
+}
+\renewcommand{\t}[1]{\texttt{#1}}
+\newcommand{\tm}[1]{\mathtt{#1}}

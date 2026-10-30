@@ -1,0 +1,54 @@
+% Adapted from [MaYo26].  Regenerate: see README.md in this directory.
+\documentclass[border=6pt,varwidth=15cm]{standalone}
+\input{preamble}
+\begin{document}
+\[
+\begin{array}{c}
+(\t{E},\sigma) \to (\t{e}, (\t{E},\sigma)) \qquad \t{e}\neq\t{nil}\\
+\hline
+ (E[\bullet\t{X \char`^= E}],\sigma\uplus \{\t{X}\mapsto \t{nil}\}) \to
+ (E[\t{X \char`^= E}\bullet],\sigma\uplus \{\,\t{X}\mapsto \t{e}\,\})
+\end{array}~(\textsc{AsnSet}_\mathrm{ss})
+\]
+\[
+\begin{array}{c}
+%\t{d}\neq\t{nil} \qquad (\t{E},\sigma,\t{d}) \to^{-1} (\t{E},\sigma)\\
+\t{d}\neq\t{nil} \qquad (\t{E},\sigma) \to (\t{d}, (\t{E},\sigma))\\
+\hline
+ (E[\bullet\t{X \char`^= E}],\sigma\uplus \{\t{X}\mapsto \t{d}\}) \to
+ (E[\t{X \char`^= E}\bullet],\sigma\uplus \{\,\t{X}\mapsto \t{nil}\,\})
+\end{array}~(\textsc{AsnClear}_\mathrm{ss})
+\]
+\[
+\begin{array}{c}
+\sigma(\t{X}) = \t{t}\\
+\hline
+ (E[\bullet\t{from X} ~ \t{loop C} ~ \t{until Y}],\sigma) \to
+ (E[\t{from X}\!\bullet~\t{loop C until Y}],\sigma)
+\end{array}~\textsc{(LoopEnter$_\mathrm{ss}$)}
+\]%
+\[
+\begin{array}{c}
+\sigma(\t{Y}) = \t{t}\\
+\hline
+ (E[\t{from X}\!\bullet ~\t{loop}~\t{C} ~ \t{until Y}],\sigma) \to
+ (E[\t{from X} ~ \t{loop C} ~ \t{until Y}\bullet],\sigma)
+\end{array}~\textsc{(LoopExit$_\mathrm{ss}$)}
+\]
+\[
+\begin{array}{c}
+\sigma(\t{Y}) = \t{f}\\
+\hline
+ (E[\t{from X}\!\bullet ~\t{loop}~\t{C} ~ \t{until Y}],\sigma) \to
+ (E[\t{from X} ~ \t{loop}\bullet\!\t{C} ~ \t{until Y}],\sigma)
+\end{array}~\textsc{(LoopIter1$_\mathrm{ss}$)}
+\]
+\[
+\begin{array}{c}
+\sigma(\t{X}) = \t{f}\\
+\hline
+ (E[\t{from X} ~\t{loop}~\t{C}\!\bullet ~ \t{until Y}],\sigma) \to
+ (E[\t{from X}\!\bullet ~ \t{loop C} ~ \t{until Y}],\sigma)
+\end{array}~\textsc{(LoopIter2$_\mathrm{ss}$)}
+\]
+\end{document}

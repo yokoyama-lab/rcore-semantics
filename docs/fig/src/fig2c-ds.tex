@@ -1,0 +1,43 @@
+% Adapted from [MaYo26].  Regenerate: see README.md in this directory.
+\documentclass[border=6pt,varwidth=14cm]{standalone}
+\input{preamble}
+\begin{document}
+\[
+\begin{array}{r@{~~}c@{~~}ll}
+ \mathcal{C}\sem{\t{X \char`^= E}}(\sigma \uplus \{\,\t{X} \mapsto \t{d}\,\}) &=& \sigma \uplus \{\,\t{X} \mapsto \t{d} \odot \mathcal{E}\sem{\t{E}}\sigma\}~
+ & (\textsc{Asn}_\mathrm{ds})\\ %
+ &&\textrm{if}~\t{d}=\t{nil}\lor(\t{d}=\mathcal{E}\sem{\t{E}}\sigma\neq\t{nil})\\
+ \mathcal{C}\sem{\t{C; D}}\sigma &=& \mathcal{C}\sem{\t{D}}(\mathcal{C}\sem{\t{C}}\sigma)& (\textsc{Seq}_\mathrm{ds})\\[0.02cm]
+ \mathcal{C}\Bigg[\!\!\Bigg[
+\begin{array}{l}
+ \t{from X}\\
+ \t{loop C}\\
+ \t{until Y}
+\end{array}
+\Bigg]\!\!\Bigg]\sigma &=&
+  \sigma' \quad \text{if}~\,
+  \mathcal{E}\sem{\t{X}}\sigma = \t{t} ~\wedge~
+  { \sigma' = \mathit{fix}(F)(\sigma) }~~
+  & (\textsc{Loop}_\mathrm{ds})
+		\\[1mm]
+ \multicolumn{4}{l}{
+  \qquad~~
+  \begin{array}{@{}l@{~}c@{~}l}
+  \text{where}~\,F(\varphi)
+  &=& \{\,(\sigma,\sigma) \mid \sigma(\t{Y}) = \t{t} \,\}~\cup\,%\\
+  % && \{\,(\sigma,\sigma_2) \mid
+  % \sigma(\t{Y}) \hspace{3pt}= \texttt{f} ~\wedge~\sigma_1 = \mathcal{C}\sem{\t{C}}\sigma~\wedge\\
+  % && \qquad\qquad~\sigma_1(\t{X}) = \texttt{f} ~\wedge~\sigma_2 = \varphi(\sigma_1)\,\}
+\left\{
+(\sigma,\sigma_2)
+\;\middle|\;
+\begin{array}{l}
+\sigma(\t{Y})=\t{f}, \sigma_1= \mathcal{C}\sem{\t{C}}\sigma,\\
+\sigma_1(\t{X})=\t{f}, \sigma_2=\varphi(\sigma_1)
+\end{array}
+\right\}
+  \end{array}
+  }\\[-.2cm] %
+\end{array}
+\]%}
+\end{document}
