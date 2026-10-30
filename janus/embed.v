@@ -23,7 +23,7 @@
                        of a [gstep], and conversely.
 
     Theorem B          with R-CORE's [act]/[test] (eval_expr, (+), "is
-    [adm_step],        not nil"), [gstep] on the translated program is a
+    [adm_step],        t"), [gstep] on the translated program is a
     [rcore_sim],       stuttering bisimulation of [exec_ss]: an R-CORE
     [rcore_embed_runs] step is one [gstep] followed by 0 or 3
                        administrative steps (3 after S_LoopEnter and
@@ -279,9 +279,14 @@ Definition ract (σ : proofs.store) (a : rasn) (σ' : proofs.store) : Prop :=
                 /\ proofs.odot (proofs.lookup σ x) ve = Some vn
                 /\ σ' = proofs.update σ x vn.
 
-(* An R-CORE guard is a variable; it is true when its value is not nil. *)
+(* An R-CORE guard is a variable; it is true when its value is t, false
+   when it is f (nil), and has no truth value otherwise, as in the paper. *)
 Definition rtest (σ : proofs.store) (x : proofs.var) : option bool :=
-  Some (match proofs.lookup σ x with proofs.Vnil => false | _ => true end).
+  match proofs.lookup σ x with
+  | proofs.Vnil => Some false
+  | proofs.Vpair proofs.Vnil proofs.Vnil => Some true
+  | _ => None
+  end.
 
 Notation rstmt := (gstmt rasn proofs.var).
 Notation rgcs := (gcs rasn proofs.var).
@@ -354,16 +359,18 @@ Proof.
 Qed.
 
 (* The value of an R-CORE guard. *)
-Lemma rtest_true : forall σ x, rtest σ x = Some true <-> proofs.lookup σ x <> proofs.Vnil.
+Lemma rtest_true : forall σ x, rtest σ x = Some true <-> proofs.lookup σ x = proofs.Vt.
 Proof.
-  intros σ x; unfold rtest; destruct (proofs.lookup σ x); split; intro H;
-    try discriminate; try congruence.
+  intros σ x; unfold rtest, proofs.Vt; split; intro H.
+  - destruct (proofs.lookup σ x) as [|[|a b] [|c d]]; try discriminate; reflexivity.
+  - rewrite H; reflexivity.
 Qed.
 
 Lemma rtest_false : forall σ x, rtest σ x = Some false <-> proofs.lookup σ x = proofs.Vnil.
 Proof.
-  intros σ x; unfold rtest; destruct (proofs.lookup σ x); split; intro H;
-    try discriminate; try congruence.
+  intros σ x; unfold rtest; split; intro H.
+  - destruct (proofs.lookup σ x) as [|[|a b] [|c d]]; try discriminate; reflexivity.
+  - rewrite H; reflexivity.
 Qed.
 
 (* Every R-CORE step is one gstep, after which the token is k

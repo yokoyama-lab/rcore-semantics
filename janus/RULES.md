@@ -259,8 +259,8 @@ Two structural facts carry most of the determinism proofs, exactly as `no_step_f
 | R-CORE `exec_ss` constructor | Janus `jstep` rule(s) | Change |
 |---|---|---|
 | `S_Asn` (`eval_expr s e = Some v_e`, `odot (s x) v_e = Some v_new`) | `J_Asn` | `⊙` is partial (undefined unless one operand is `nil` or both are equal); `apply_upd op` is total on `Z`, so the rule has **no premise**. `x ^= e` becomes `x op= e` with three operators. |
-| `S_LoopEnter` (`s x <> Vnil`; `•loop → mid_loop`) | `J_Loop_Enter` (`e1` true; `•loop → loop_from`) | the entry guard is an arbitrary expression, not a variable; target is the from-point instead of the single mid-point |
-| `S_LoopExit` (`s y <> Vnil`; `mid_loop → loop•`) | `J_Loop_Exit` (`e2` true; `loop_until → loop•`) | source is the until-point |
+| `S_LoopEnter` (`s x = Vt`; `•loop → mid_loop`) | `J_Loop_Enter` (`e1` true; `•loop → loop_from`) | the entry guard is an arbitrary expression, not a variable; target is the from-point instead of the single mid-point |
+| `S_LoopExit` (`s y = Vt`; `mid_loop → loop•`) | `J_Loop_Exit` (`e2` true; `loop_until → loop•`) | source is the until-point |
 | `S_LoopIter1` (`s y = Vnil`; `mid_loop → in_loop(•c)`) | `J_Loop_Iter1` (`e2` false; `loop_until → loop_loop(•s2)`) | R-CORE's body `c` is Janus's `s2` |
 | `S_LoopIter2` (`s x = Vnil`; `in_loop(c•) → mid_loop`) | `J_Loop_Iter2` (`e1` false; `loop_loop(s2•) → loop_from`) | target is the from-point |
 | `S_Seq_Enter` / `S_Seq_Mid` / `S_Seq_Exit` | `J_Seq_Enter` / `J_Seq_Mid` / `J_Seq_Exit` | identical (R-CORE's oriented Eq. (7) congruence, `cong_iff_admin`) |
@@ -272,7 +272,7 @@ Two structural facts carry most of the determinism proofs, exactly as `no_step_f
 | — | `J_Call_Enter`, `J_Call_Exit`, `J_Uncall_Enter`, `J_Uncall_Exit`, `J_Ctx_Call`, `J_Ctx_Uncall` | **new**: R-CORE has no procedures; `uncall` runs `inv (Γ p)` forwards |
 
 **R-CORE loops as Janus loops (embedding remark).** At the control level, R-CORE's
-`from x loop c until y` is Janus's `from (x ≠ nil) do skip loop c until (y ≠ nil)`, and
+`from x loop c until y` is Janus's `from (x = t) do skip loop c until (y = t)`, and
 `CC_mid_loop x c y` corresponds to the *pair* `CS_loop_from` / `CS_loop_until` of the image,
 connected by the three administrative steps `J_Loop_Do ; J_Ctx_Loop_Do(J_Skip) ; J_Loop_DoDone`.
 So one R-CORE step `S_LoopEnter` is simulated by `J_Loop_Enter` followed by those three steps,
@@ -283,7 +283,7 @@ updates). The formal statement (`janus/embed.v`, 2026-10-24) therefore goes thro
 rather than a value translation: `gstep act test` is the part of `jstep` for skip, `x op= e`,
 sequencing and loops with the assignment premise and the guard value as parameters. With Janus's
 data it is `jstep` on that fragment (`jstep_gstep_iff`); with R-CORE's data (`eval_expr`, `⊙`,
-"not nil") and `CC_mid_loop ↦ CS_loop_until` it is a stuttering bisimulation of `exec_ss`
+"is `t`, is `nil`, or neither") and `CC_mid_loop ↦ CS_loop_until` it is a stuttering bisimulation of `exec_ss`
 (`rcore_sim`, `adm_progress`, `adm_step`), and runs between translated configurations are exactly
 R-CORE runs (`rcore_embed_runs`).
 
